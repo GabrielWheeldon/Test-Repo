@@ -1,0 +1,7 @@
+{
+  "name": "Bedrock",
+  "icon": "X",
+  "description": "An unbreakable block forming the deepest layer.",
+  "solid": true,
+  "breakable": false
+}

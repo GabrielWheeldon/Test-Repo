@@ -1,0 +1,7 @@
+{
+  "name": "Stone",
+  "icon": "S",
+  "description": "A solid stone block.",
+  "solid": true,
+  "breakable": true
+}

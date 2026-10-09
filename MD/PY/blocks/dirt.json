@@ -1,0 +1,7 @@
+{
+  "name": "Dirt",
+  "icon": ".",
+  "description": "Packed soil.",
+  "solid": true,
+  "breakable": true
+}

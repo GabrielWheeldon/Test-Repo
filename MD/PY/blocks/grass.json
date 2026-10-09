@@ -1,0 +1,7 @@
+{
+  "name": "Grass",
+  "icon": "\"",
+  "description": "A block of soil covered with grass.",
+  "solid": true,
+  "breakable": true
+}
