@@ -1,0 +1,1 @@
+{"id":"cooked_stew","name":"Cooked Stew","icon":"U","description":"A hearty meal that restores 15 health.","placeable":false,"kind":"usable","heal_amount":15}

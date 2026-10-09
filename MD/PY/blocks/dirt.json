@@ -3,5 +3,9 @@
   "icon": ".",
   "description": "Packed soil.",
   "solid": true,
-  "breakable": true
+  "breakable": true,
+  "tool_type": "shovel",
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 0.55
 }

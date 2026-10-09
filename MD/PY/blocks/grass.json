@@ -3,5 +3,8 @@
   "icon": "\"",
   "description": "A block of soil covered with grass.",
   "solid": true,
-  "breakable": true
+  "breakable": true,
+  "foreground_color": "#F3FFE8",
+  "background_color": "#5C8A33",
+  "break_time": 0.4
 }

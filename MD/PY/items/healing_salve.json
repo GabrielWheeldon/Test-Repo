@@ -1,0 +1,1 @@
+{"id":"healing_salve","name":"Healing Salve","icon":"+","description":"A soothing salve that restores 20 health.","placeable":false,"kind":"usable","heal_amount":20}

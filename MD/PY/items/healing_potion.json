@@ -1,0 +1,1 @@
+{"id":"healing_potion","name":"Healing Potion","icon":"!","description":"A warm potion that restores 35 health.","placeable":false,"kind":"usable","heal_amount":35}

@@ -3,5 +3,9 @@
   "icon": "S",
   "description": "A solid stone block.",
   "solid": true,
-  "breakable": true
+  "breakable": true,
+  "tool_type": "pickaxe",
+  "foreground_color": "#F5F5F5",
+  "background_color": "#777B82",
+  "break_time": 1.4
 }

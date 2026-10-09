@@ -1,0 +1,11 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "PlayTest",
+            "type": "shell",
+            "command": "python C:\\Users\\gabri\\Documents\\Uni\\Test-Repo\\MD\\PY\\Goblin_Fortress.py",
+            "inAgents": true
+        }
+    ]
+}

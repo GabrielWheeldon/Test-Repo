@@ -1,0 +1,1 @@
+{"id":"stone_shovel","name":"Stone Shovel","icon":"D","description":"A durable shovel that yields extra dirt.","placeable":false,"kind":"tool","tool_type":"shovel","durability":24,"drop_bonus":1,"mining_speed":3.0}

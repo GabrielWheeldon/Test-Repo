@@ -3,5 +3,8 @@
   "icon": "X",
   "description": "An unbreakable block forming the deepest layer.",
   "solid": true,
-  "breakable": false
+  "breakable": false,
+  "foreground_color": "#E8E8EC",
+  "background_color": "#34343A",
+  "break_time": 0.0
 }

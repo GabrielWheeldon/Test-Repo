@@ -1,0 +1,1 @@
+{"id":"stone_pickaxe","name":"Stone Pickaxe","icon":"P","description":"A durable pickaxe that yields extra stone.","placeable":false,"kind":"tool","tool_type":"pickaxe","durability":20,"drop_bonus":1,"mining_speed":3.0}
