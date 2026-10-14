@@ -1,0 +1,9 @@
+{
+  "id": "woven_fiber",
+  "name": "Woven Fiber",
+  "icon": "t",
+  "description": "A useful woven fiber resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

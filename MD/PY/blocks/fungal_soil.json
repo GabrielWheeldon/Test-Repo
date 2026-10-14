@@ -1,0 +1,11 @@
+{
+  "id": "fungal_soil",
+  "name": "Fungal Soil",
+  "icon": "r",
+  "description": "A solid, breakable fungal soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F2E7D5",
+  "background_color": "#77634B",
+  "break_time": 1.71
+}

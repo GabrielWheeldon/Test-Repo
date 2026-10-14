@@ -1,0 +1,11 @@
+{
+  "id": "packed_ice",
+  "name": "Packed Ice",
+  "icon": "1",
+  "description": "A solid, breakable packed ice block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#ECFFD9",
+  "background_color": "#5C7F38",
+  "break_time": 1.35
+}

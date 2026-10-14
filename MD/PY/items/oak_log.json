@@ -1,0 +1,8 @@
+{
+  "id": "oak_log",
+  "name": "Oak Log",
+  "icon": "I",
+  "description": "A piece of oak timber.",
+  "placeable": true,
+  "kind": "block"
+}

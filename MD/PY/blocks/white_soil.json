@@ -1,0 +1,11 @@
+{
+  "id": "white_soil",
+  "name": "White Soil",
+  "icon": "o",
+  "description": "A solid, breakable white soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 1.17
+}

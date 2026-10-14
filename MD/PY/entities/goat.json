@@ -1,0 +1,10 @@
+{
+  "id": "goat",
+  "name": "Goat",
+  "icon": "g",
+  "description": "A sure-footed grazer that bounds away from trouble.",
+  "health": 32,
+  "attack_power": 0,
+  "disposition": "passive",
+  "foreground_color": "#E8E2D5"
+}

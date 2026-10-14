@@ -1,0 +1,8 @@
+{
+  "id": "oak_leaves",
+  "name": "Oak Leaves",
+  "icon": "*",
+  "description": "A leafy piece of an oak canopy.",
+  "placeable": true,
+  "kind": "block"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "scoria",
+  "name": "Scoria",
+  "icon": "a",
+  "description": "A solid, breakable scoria block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 1.53
+}

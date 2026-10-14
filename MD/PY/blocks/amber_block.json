@@ -1,0 +1,11 @@
+{
+  "id": "amber_block",
+  "name": "Amber Block",
+  "icon": "C",
+  "description": "A solid, breakable amber block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 0.81
+}

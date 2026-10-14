@@ -1,0 +1,11 @@
+{
+  "id": "gold_ore",
+  "name": "Gold Ore",
+  "icon": "o",
+  "description": "A solid, breakable gold ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFE9E2",
+  "background_color": "#A34F3D",
+  "break_time": 1.53
+}

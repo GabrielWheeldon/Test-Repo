@@ -1,0 +1,9 @@
+{
+  "id": "raw_jade",
+  "name": "Raw Jade",
+  "icon": "z",
+  "description": "A useful raw jade resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "oak_sapling",
+  "name": "Oak Sapling",
+  "icon": "t",
+  "description": "A young oak tree ready to grow.",
+  "placeable": true,
+  "kind": "block"
+}

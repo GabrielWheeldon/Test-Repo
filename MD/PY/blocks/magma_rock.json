@@ -1,0 +1,11 @@
+{
+  "id": "magma_rock",
+  "name": "Magma Rock",
+  "icon": "d",
+  "description": "A solid, breakable magma rock block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 0.63
+}

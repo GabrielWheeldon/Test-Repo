@@ -1,0 +1,9 @@
+{
+  "id": "sweetroot",
+  "name": "Sweetroot",
+  "icon": "8",
+  "description": "A useful sweetroot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

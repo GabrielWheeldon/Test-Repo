@@ -1,0 +1,9 @@
+{
+  "id": "raw_topaz",
+  "name": "Raw Topaz",
+  "icon": "x",
+  "description": "A useful raw topaz resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

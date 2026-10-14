@@ -1,0 +1,10 @@
+{
+  "id": "elk",
+  "name": "Elk",
+  "icon": "E",
+  "description": "A calm woodland grazer that flees when approached.",
+  "health": 42,
+  "attack_power": 0,
+  "disposition": "passive",
+  "foreground_color": "#B58A5A"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "blue_ice",
+  "name": "Blue Ice",
+  "icon": "Z",
+  "description": "A solid, breakable blue ice block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 0.99
+}

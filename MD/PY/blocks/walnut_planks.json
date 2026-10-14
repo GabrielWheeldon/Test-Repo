@@ -1,0 +1,11 @@
+{
+  "id": "walnut_planks",
+  "name": "Walnut Planks",
+  "icon": "B",
+  "description": "A solid, breakable walnut planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FCE8FF",
+  "background_color": "#914D82",
+  "break_time": 0.99
+}

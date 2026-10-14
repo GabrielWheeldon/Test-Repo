@@ -1,0 +1,9 @@
+{
+  "id": "tin_ingot",
+  "name": "Tin Ingot",
+  "icon": "E",
+  "description": "A useful tin ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

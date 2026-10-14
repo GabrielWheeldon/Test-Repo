@@ -1,0 +1,9 @@
+{
+  "id": "tin_wire",
+  "name": "Tin Wire",
+  "icon": "j",
+  "description": "A useful tin wire resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "clay_marble",
+  "name": "Clay Marble",
+  "icon": "x",
+  "description": "A useful clay marble resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

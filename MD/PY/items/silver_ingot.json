@@ -1,0 +1,9 @@
+{
+  "id": "silver_ingot",
+  "name": "Silver Ingot",
+  "icon": "G",
+  "description": "A useful silver ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

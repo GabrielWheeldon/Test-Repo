@@ -1,0 +1,11 @@
+{
+  "id": "zinc_ore",
+  "name": "Zinc Ore",
+  "icon": "s",
+  "description": "A solid, breakable zinc ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 0.81
+}

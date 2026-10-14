@@ -1,0 +1,9 @@
+{
+  "id": "smoked_trout",
+  "name": "Smoked Trout",
+  "icon": "f",
+  "description": "A useful smoked trout resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

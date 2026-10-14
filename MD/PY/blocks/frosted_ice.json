@@ -1,0 +1,11 @@
+{
+  "id": "frosted_ice",
+  "name": "Frosted Ice",
+  "icon": "2",
+  "description": "A solid, breakable frosted ice block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFE9E2",
+  "background_color": "#A34F3D",
+  "break_time": 1.53
+}

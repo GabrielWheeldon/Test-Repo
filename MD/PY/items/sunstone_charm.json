@@ -1,0 +1,9 @@
+{
+  "id": "sunstone_charm",
+  "name": "Sunstone Charm",
+  "icon": "T",
+  "description": "A useful sunstone charm resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

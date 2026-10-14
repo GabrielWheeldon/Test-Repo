@@ -1,13 +1,19 @@
 import json
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
+import random
+import re
 import time
 import tkinter as tk
+from tkinter import messagebox
 
 
 BLOCK_PRESETS_DIR = Path(__file__).resolve().parent / "blocks"
 ITEM_PRESETS_DIR = Path(__file__).resolve().parent / "items"
 CRAFTING_RECIPES_FILE = Path(__file__).resolve().parent / "recipes" / "recipes.json"
+SAVE_GAMES_DIR = Path.home() / ".goblin_fortress" / "saves"
+SAVE_VERSION = 1
 DEFAULT_FOREGROUND_COLOR = "#222222"
 DEFAULT_BLOCK_BACKGROUND = "#8B5A2B"
 ITEM_FOREGROUND_PALETTE = (
@@ -65,6 +71,8 @@ class gameObject:
         self.pos = pos
         self.foreground_color = foreground_color
         self.break_time = 1.0
+        self.stackable = False
+        self.count = 1
 
     def move(self, new_pos):
         self.pos = new_pos
@@ -81,10 +89,12 @@ class block(gameObject):
         self.solid = solid
         self.breakable = breakable
         self.placeable = True
+        self.stackable = True
         self.preset_id = None
         self.tool_type = tool_type
         self.background_color = background_color
         self.break_time = break_time
+        self.grows_into_tree = False
 
     @classmethod
     def from_preset(cls, preset, pos):
@@ -101,17 +111,21 @@ class block(gameObject):
             preset.get("break_time", 1.0),
         )
         result.preset_id = preset.get("id")
+        result.grows_into_tree = preset.get("grows_into_tree", False)
+        if result.grows_into_tree:
+            result.planted_at = time.monotonic()
         return result
 
 
 class craftedItem(gameObject):
     def __init__(
         self, item_id, name, icon, description, pos=(0, 0, 0), placeable=True,
-        foreground_color=DEFAULT_FOREGROUND_COLOR,
+        foreground_color=DEFAULT_FOREGROUND_COLOR, stackable=True,
     ):
         super().__init__(name, icon, description, pos, foreground_color)
         self.item_id = item_id
         self.placeable = placeable
+        self.stackable = stackable
 
     @classmethod
     def from_preset(cls, preset, pos=(0, 0, 0)):
@@ -123,6 +137,10 @@ class craftedItem(gameObject):
             pos,
             preset.get("placeable", True),
             preset.get("foreground_color", DEFAULT_FOREGROUND_COLOR),
+            preset.get(
+                "stackable",
+                preset.get("kind", "item") in ("item", "block", "usable"),
+            ),
         )
 
 
@@ -132,7 +150,9 @@ class toolItem(craftedItem):
         drop_bonus, mining_speed=2.0,
         foreground_color=DEFAULT_FOREGROUND_COLOR,
     ):
-        super().__init__(item_id, name, icon, description, pos, False, foreground_color)
+        super().__init__(
+            item_id, name, icon, description, pos, False, foreground_color, False
+        )
         self.tool_type = tool_type
         self.durability = durability
         self.drop_bonus = drop_bonus
@@ -144,7 +164,9 @@ class usableItem(craftedItem):
         self, item_id, name, icon, description, pos, heal_amount,
         foreground_color=DEFAULT_FOREGROUND_COLOR,
     ):
-        super().__init__(item_id, name, icon, description, pos, False, foreground_color)
+        super().__init__(
+            item_id, name, icon, description, pos, False, foreground_color, True
+        )
         self.heal_amount = heal_amount
 
 
@@ -259,11 +281,45 @@ def load_item_presets():
             )
         if not isinstance(preset.get("placeable"), bool):
             raise ValueError(f"{preset_path} must define a boolean 'placeable' field.")
+        if "stackable" in preset and not isinstance(preset["stackable"], bool):
+            raise ValueError(f"{preset_path} must define a boolean 'stackable' field.")
         if preset.get("kind", "item") not in (
             "item", "block", "tool", "usable", "storage",
             "crafting_station", "furnace", "campfire", "resting_place",
         ):
             raise ValueError(f"{preset_path} has an unsupported item kind.")
+        presets[preset_id] = preset
+    return presets
+
+
+def load_entity_presets():
+    entity_presets_dir = Path(__file__).resolve().parent / "entities"
+    presets = {}
+    for preset_path in sorted(entity_presets_dir.glob("*.json")):
+        with preset_path.open(encoding="utf-8") as preset_file:
+            preset = json.load(preset_file)
+        preset_id = preset_path.stem
+        if preset.get("id", preset_id) != preset_id:
+            raise ValueError(f"{preset_path} id must match its filename.")
+        for field in ("name", "icon", "description"):
+            if not isinstance(preset.get(field), str) or not preset[field]:
+                raise ValueError(f"{preset_path} must define a non-empty '{field}'.")
+        if (
+            not isinstance(preset.get("health"), int)
+            or preset["health"] < 1
+            or not isinstance(preset.get("attack_power"), int)
+            or preset["attack_power"] < 0
+        ):
+            raise ValueError(
+                f"{preset_path} must define positive health and non-negative attack_power."
+            )
+        if preset.get("disposition") not in ("hostile", "passive"):
+            raise ValueError(
+                f"{preset_path} disposition must be 'hostile' or 'passive'."
+            )
+        if not is_hex_color(preset.get("foreground_color")):
+            raise ValueError(f"{preset_path} must define a hex foreground_color.")
+        preset["id"] = preset_id
         presets[preset_id] = preset
     return presets
 
@@ -327,6 +383,38 @@ def item_identifier(item):
     return getattr(item, "item_id", None)
 
 
+def add_item_to_collection(collection, item):
+    if getattr(item, "stackable", False):
+        item_id = item_identifier(item)
+        existing = next(
+            (
+                candidate for candidate in collection
+                if getattr(candidate, "stackable", False)
+                and type(candidate) is type(item)
+                and item_identifier(candidate) == item_id
+            ),
+            None,
+        )
+        if existing is not None:
+            existing.count += item.count
+            return existing
+    collection.append(item)
+    return item
+
+
+def remove_item_from_collection(collection, item, quantity=1):
+    if item not in collection:
+        return 0
+    if not getattr(item, "stackable", False):
+        collection.remove(item)
+        return 1
+    removed = min(max(0, quantity), item.count)
+    item.count -= removed
+    if item.count <= 0:
+        collection.remove(item)
+    return removed
+
+
 def use_item(item, player_character):
     if not isinstance(item, usableItem):
         return False, "That item cannot be used directly."
@@ -335,11 +423,11 @@ def use_item(item, player_character):
         return False, "Your health is already full."
     restored = min(item.heal_amount, missing_health)
     player_character.health += restored
-    player_character.remove_from_inventory(item)
+    player_character.remove_from_inventory(item, 1)
     return True, f"Used {item.name}; restored {restored} health."
 
 
-def craft_recipe(inventory, recipe, game_world):
+def missing_recipe_ingredients(inventory, recipe):
     required = {}
     for ingredient in recipe["ingredients"]:
         item_id = ingredient["id"]
@@ -348,52 +436,101 @@ def craft_recipe(inventory, recipe, game_world):
     available = {}
     for inventory_item in inventory:
         item_id = item_identifier(inventory_item)
-        available[item_id] = available.get(item_id, 0) + 1
+        available[item_id] = available.get(item_id, 0) + getattr(
+            inventory_item, "count", 1
+        )
     missing = [
         f"{quantity - available.get(item_id, 0)} more {item_id.replace('_', ' ')}"
         for item_id, quantity in required.items()
         if available.get(item_id, 0) < quantity
     ]
+    return required, missing
+
+
+def consume_recipe_ingredients(inventory, required):
+    for item_id, quantity in required.items():
+        remaining = quantity
+        for ingredient_item in list(inventory):
+            if item_identifier(ingredient_item) != item_id:
+                continue
+            remaining -= remove_item_from_collection(
+                inventory, ingredient_item, remaining
+            )
+            if remaining == 0:
+                break
+
+
+def add_crafting_result(inventory, result, game_world):
+    if result["quantity"] < 1:
+        raise ValueError("Crafting result quantity must be positive.")
+    result_item = game_world.create_crafting_result(result)
+    if getattr(result_item, "stackable", False):
+        result_item.count = result["quantity"]
+        add_item_to_collection(inventory, result_item)
+    else:
+        add_item_to_collection(inventory, result_item)
+        for _ in range(result["quantity"] - 1):
+            add_item_to_collection(
+                inventory, game_world.create_crafting_result(result)
+            )
+
+
+def craft_recipe(inventory, recipe, game_world):
+    required, missing = missing_recipe_ingredients(inventory, recipe)
     if missing:
         return False, missing
 
-    result = recipe["result"]
-    crafted_items = [
-        game_world.create_crafting_result(result)
-        for _ in range(result["quantity"])
-    ]
-    for item_id, quantity in required.items():
-        for _ in range(quantity):
-            ingredient_item = next(
-                item for item in inventory if item_identifier(item) == item_id
-            )
-            inventory.remove(ingredient_item)
-    inventory.extend(crafted_items)
+    consume_recipe_ingredients(inventory, required)
+    add_crafting_result(inventory, recipe["result"], game_world)
     return True, []
 
 
 class entity(gameObject):
     def __init__(
         self, name, icon, description, pos, health, attack_power,
-        foreground_color="#D4A72C",
+        foreground_color="#D4A72C", disposition="passive",
     ):
         super().__init__(name, icon, description, pos, foreground_color)
         self.health = health
+        self.max_health = health
         self.attack_power = attack_power
+        self.disposition = disposition
+        self.last_attack_time = 0.0
+
+    @classmethod
+    def from_preset(cls, preset, pos=(0, 0, 0)):
+        creature = cls(
+            preset["name"],
+            preset["icon"],
+            preset["description"],
+            pos,
+            preset["health"],
+            preset["attack_power"],
+            preset["foreground_color"],
+            preset["disposition"],
+        )
+        creature.preset_id = preset["id"]
+        return creature
+
+    @property
+    def hp(self):
+        return self.health
+
+    @hp.setter
+    def hp(self, value):
+        self.health = max(0, min(self.max_health, value))
 
 
 class player(entity):
     def __init__(self, name, icon, description, pos, health, attack_power, inventory):
         super().__init__(name, icon, description, pos, health, attack_power)
         self.inventory = inventory
-        self.max_health = health
 
     def add_to_inventory(self, item):
-        self.inventory.append(item)
+        return add_item_to_collection(self.inventory, item)
 
-    def remove_from_inventory(self, item):
-        if item in self.inventory:
-            self.inventory.remove(item)
+    def remove_from_inventory(self, item, quantity=1):
+        return remove_item_from_collection(self.inventory, item, quantity)
 
     def display_inventory(self):
         if not self.inventory:
@@ -401,11 +538,13 @@ class player(entity):
         else:
             print("Inventory:")
             for item in self.inventory:
-                print(f"- {item.name}: {item.description}")
+                quantity = f" x{item.count}" if item.stackable else ""
+                print(f"- {item.name}{quantity}: {item.description}")
 
 
 class world:
-    Y_LEVEL_COUNT = 10
+    Y_LEVEL_COUNT = 40
+    SURFACE_DEPTH = 10
     VISIBLE_DEPTHS_BELOW = 6
 
     def __init__(self):
@@ -427,12 +566,119 @@ class world:
         self.chunks.clear()
         self.active_chunk = (0, 0)
         self.layers = self._generate_chunk(0, 0)
-        self.map = self.layers[0]
-        self.subsurface = self.layers[1:]
+        self.map = self.layers[self.SURFACE_DEPTH]
+        self.subsurface = self.layers[self.SURFACE_DEPTH + 1:]
         self.chunks[(0, 0)] = self.layers
 
+    @staticmethod
+    def _terrain_noise(x, y, scale):
+        grid_x, offset_x = divmod(x, scale)
+        grid_y, offset_y = divmod(y, scale)
+
+        def corner_value(corner_x, corner_y):
+            seed = corner_x * 73856093 ^ corner_y * 19349663
+            return random.Random(seed).random()
+
+        def smooth(value):
+            return value * value * (3 - 2 * value)
+
+        horizontal = smooth(offset_x / scale)
+        vertical = smooth(offset_y / scale)
+        top_left = corner_value(grid_x, grid_y)
+        top_right = corner_value(grid_x + 1, grid_y)
+        bottom_left = corner_value(grid_x, grid_y + 1)
+        bottom_right = corner_value(grid_x + 1, grid_y + 1)
+        top = top_left + (top_right - top_left) * horizontal
+        bottom = bottom_left + (bottom_right - bottom_left) * horizontal
+        return top + (bottom - top) * vertical
+
+    def _surface_material(self, x, y):
+        regional = self._terrain_noise(x, y, 12)
+        local = self._terrain_noise(x, y, 4)
+        if regional < 0.3 or (regional < 0.4 and local < 0.45):
+            return "sandy_soil"
+        if regional > 0.84 and local > 0.62:
+            return "stone"
+        if local < 0.32:
+            return "dirt"
+        return "grass"
+
+    def get_surface_depth(self, x, y):
+        regional = self._terrain_noise(x, y, 18)
+        local = self._terrain_noise(x, y, 7)
+        height = 0.7 * regional + 0.3 * local
+        return max(
+            2,
+            min(
+                self.Y_LEVEL_COUNT - 5,
+                self.SURFACE_DEPTH + round((height - 0.5) * 6),
+            ),
+        )
+
+    @staticmethod
+    def _tree_positions(x, y, base_depth):
+        return (
+            (x, y, base_depth, "oak_log"),
+            (x, y, base_depth - 1, "oak_log"),
+            (x - 1, y, base_depth - 1, "oak_leaves"),
+            (x + 1, y, base_depth - 1, "oak_leaves"),
+            (x, y - 1, base_depth - 1, "oak_leaves"),
+            (x, y + 1, base_depth - 1, "oak_leaves"),
+            (x, y, base_depth - 2, "oak_leaves"),
+        )
+
+    def _grow_tree_at(self, x, y, depth, sapling=None):
+        tree_positions = self._tree_positions(x, y, depth)
+        for tree_x, tree_y, tree_depth, _preset_id in tree_positions:
+            if not 0 <= tree_depth < self.Y_LEVEL_COUNT:
+                return False
+            existing = self.get_tile(tree_x, tree_y, tree_depth)
+            if existing is not None and not (
+                (tree_x, tree_y, tree_depth) == (x, y, depth)
+                and existing is sapling
+            ):
+                return False
+        ground = self.get_tile(x, y, depth + 1)
+        if not isinstance(ground, block) or ground.preset_id not in (
+            "grass", "dirt",
+        ):
+            return False
+        block_presets = load_block_presets()
+        for tree_x, tree_y, tree_depth, preset_id in tree_positions:
+            self.set_tile(
+                tree_x,
+                tree_y,
+                tree_depth,
+                block.from_preset(
+                    block_presets[preset_id],
+                    (tree_x, tree_y, tree_depth),
+                ),
+            )
+        return True
+
+    def grow_saplings(self, current_time=None):
+        now = time.monotonic() if current_time is None else current_time
+        saplings = [
+            tile
+            for chunk_layers in self.chunks.values()
+            for layer in chunk_layers
+            for row in layer
+            for tile in row
+            if isinstance(tile, block)
+            and tile.grows_into_tree
+            and now - tile.planted_at >= 30.0
+        ]
+        changed = False
+        for sapling in saplings:
+            x, y, depth = sapling.pos
+            if self._grow_tree_at(x, y, depth, sapling):
+                changed = True
+            else:
+                sapling.planted_at = now
+        return changed
+
     def _generate_chunk(self, chunk_x: int, chunk_y: int):
-        dirt_preset = load_block_presets()["dirt"]
+        block_presets = load_block_presets()
         origin_x = chunk_x * self.chunk_width
         origin_y = chunk_y * self.chunk_height
         chunk_layers = []
@@ -443,32 +689,87 @@ class world:
                 for local_x in range(self.chunk_width):
                     global_x = origin_x + local_x
                     global_y = origin_y + local_y
-                    tile = (
-                        None
-                        if depth == 0
-                        else block.from_preset(
-                            dirt_preset, (global_x, global_y, depth)
+                    surface_depth = self.get_surface_depth(global_x, global_y)
+                    if depth <= surface_depth:
+                        tile = None
+                    elif depth == surface_depth + 1:
+                        preset_id = self._surface_material(global_x, global_y)
+                        tile = block.from_preset(
+                            block_presets[preset_id],
+                            (global_x, global_y, depth),
                         )
-                    )
+                    else:
+                        preset_id = (
+                            "dirt"
+                            if depth <= surface_depth + 3
+                            else "stone"
+                        )
+                        tile = block.from_preset(
+                            block_presets[preset_id],
+                            (global_x, global_y, depth),
+                        )
                     row.append(tile)
                 layer.append(row)
             chunk_layers.append(layer)
 
+        starter_clearance = {(3, 5), (4, 4), (4, 5), (6, 5)}
+        for tree_y in range(origin_y - 1, origin_y + self.chunk_height + 1):
+            for tree_x in range(origin_x - 1, origin_x + self.chunk_width + 1):
+                seed = tree_x * 73856093 ^ tree_y * 19349663 ^ 0x5A17
+                if random.Random(seed).random() >= 0.035:
+                    continue
+                tree_depth = self.get_surface_depth(tree_x, tree_y)
+                tree_tiles = self._tree_positions(
+                    tree_x, tree_y, tree_depth
+                )
+                if (chunk_x, chunk_y) == (0, 0) and any(
+                    (tile_x, tile_y) in starter_clearance
+                    for tile_x, tile_y, _tile_depth, _preset_id in tree_tiles
+                ):
+                    continue
+                surface = self._surface_material(tree_x, tree_y)
+                if surface not in ("grass", "dirt"):
+                    continue
+                if any(
+                    not (origin_x <= tile_x < origin_x + self.chunk_width)
+                    or not (origin_y <= tile_y < origin_y + self.chunk_height)
+                    or not 0 <= tile_depth < self.Y_LEVEL_COUNT
+                    for tile_x, tile_y, tile_depth, _preset_id in tree_tiles
+                ):
+                    continue
+                if any(
+                    chunk_layers[tile_depth][tile_y - origin_y][tile_x - origin_x]
+                    is not None
+                    for tile_x, tile_y, tile_depth, _preset_id in tree_tiles
+                ):
+                    continue
+                for tree_x_pos, tree_y_pos, tree_depth, preset_id in tree_tiles:
+                    chunk_layers[tree_depth][tree_y_pos - origin_y][tree_x_pos - origin_x] = (
+                        block.from_preset(
+                            block_presets[preset_id],
+                            (tree_x_pos, tree_y_pos, tree_depth),
+                        )
+                    )
+
         if (chunk_x, chunk_y) == (0, 0) and self.chunk_width >= 5 and self.chunk_height >= 2:
             center_x, center_y = self.chunk_width // 2, self.chunk_height // 2
-            chunk_layers[0][center_y][center_x - 2] = storageObject(
+            chest_x, chest_y = center_x - 2, center_y
+            table_x, table_y = center_x - 1, center_y
+            furnace_x, furnace_y = center_x + 1, center_y
+            chunk_layers[self.get_surface_depth(chest_x, chest_y)][center_y][center_x - 2] = storageObject(
                 "Chest", "C", "A chest for storing items.",
-                (center_x - 2, center_y, 0), item_id="chest",
+                (chest_x, chest_y, self.get_surface_depth(chest_x, chest_y)),
+                item_id="chest",
                 background_color="#573714",
             )
-            chunk_layers[0][center_y][center_x - 1] = craftingTable(
+            chunk_layers[self.get_surface_depth(table_x, table_y)][center_y][center_x - 1] = craftingTable(
                 "Crafting Table", "T", "A table for crafting blocks.",
-                (center_x - 1, center_y, 0),
+                (table_x, table_y, self.get_surface_depth(table_x, table_y)),
                 background_color="#54351F",
             )
-            chunk_layers[0][center_y][center_x + 1] = furnace(
+            chunk_layers[self.get_surface_depth(furnace_x, furnace_y)][center_y][center_x + 1] = furnace(
                 "Furnace", "F", "A furnace for smelting blocks.",
-                (center_x + 1, center_y, 0),
+                (furnace_x, furnace_y, self.get_surface_depth(furnace_x, furnace_y)),
                 background_color="#303944",
             )
         return chunk_layers
@@ -479,8 +780,8 @@ class world:
             self.chunks[chunk_key] = self._generate_chunk(chunk_x, chunk_y)
         self.active_chunk = chunk_key
         self.layers = self.chunks[chunk_key]
-        self.map = self.layers[0]
-        self.subsurface = self.layers[1:]
+        self.map = self.layers[self.SURFACE_DEPTH]
+        self.subsurface = self.layers[self.SURFACE_DEPTH + 1:]
         return self.layers
 
     def _chunk_location(self, x: int, y: int):
@@ -550,6 +851,169 @@ class world:
             self.chunks[chunk_key] = self._generate_chunk(chunk_x, chunk_y)
         chunk_layers = self.chunks[chunk_key]
         return chunk_layers[depth][local_y][local_x]
+
+    def update_entity_ai(self, player_character, current_time=None):
+        now = time.monotonic() if current_time is None else current_time
+        player_x, player_y, player_depth = player_character.pos
+        player_chunk_x, player_chunk_y, _, _ = self._chunk_location(
+            player_x, player_y
+        )
+        nearby_entities = []
+        for (chunk_x, chunk_y), chunk_layers in self.chunks.items():
+            if (
+                abs(chunk_x - player_chunk_x) > 1
+                or abs(chunk_y - player_chunk_y) > 1
+            ):
+                continue
+            nearby_entities.extend(
+                tile
+                for layer in chunk_layers
+                for row in layer
+                for tile in row
+                if isinstance(tile, entity) and tile is not player_character
+            )
+
+        changed = False
+        for creature in nearby_entities:
+            if creature.health <= 0:
+                chunk_x, chunk_y, local_x, local_y = self._chunk_location(
+                    creature.pos[0], creature.pos[1]
+                )
+                current_chunk = self.chunks.get((chunk_x, chunk_y))
+                if current_chunk is not None and current_chunk[creature.pos[2]][local_y][local_x] is creature:
+                    current_chunk[creature.pos[2]][local_y][local_x] = None
+                    changed = True
+                continue
+
+            x, y, depth = creature.pos
+            if depth != player_depth:
+                continue
+            distance = abs(x - player_x) + abs(y - player_y)
+
+            if creature.disposition == "hostile":
+                if distance == 1:
+                    if now - creature.last_attack_time >= 1.0:
+                        player_character.hp -= creature.attack_power
+                        creature.last_attack_time = now
+                        changed = True
+                    continue
+                if distance <= 6:
+                    step = self._find_entity_path_step(
+                        creature, player_character.pos, maximum_distance=6
+                    )
+                else:
+                    continue
+            elif distance <= 3:
+                step = self._find_entity_flee_step(creature, player_character)
+            elif random.random() < 0.08:
+                step = self._find_entity_wander_step(creature)
+            else:
+                continue
+
+            if step is not None and self._move_entity(creature, step):
+                changed = True
+        return changed
+
+    def _find_entity_path_step(self, creature, player_pos, maximum_distance):
+        start_x, start_y, depth = creature.pos
+        player_x, player_y, player_depth = player_pos
+        if depth != player_depth:
+            return None
+        queue = deque([(start_x, start_y, None)])
+        visited = {(start_x, start_y)}
+        while queue:
+            x, y, first_step = queue.popleft()
+            if abs(x - player_x) + abs(y - player_y) == 1:
+                return first_step
+            for next_x, next_y in (
+                (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)
+            ):
+                point = (next_x, next_y)
+                if (
+                    point in visited
+                    or abs(next_x - start_x) + abs(next_y - start_y)
+                    > maximum_distance
+                    or (next_x, next_y) == (player_x, player_y)
+                ):
+                    continue
+                tile = self.get_tile(next_x, next_y, depth)
+                if tile is not None:
+                    continue
+                visited.add(point)
+                queue.append((
+                    next_x, next_y,
+                    (next_x, next_y, depth)
+                    if first_step is None else first_step,
+                ))
+        return None
+
+    def _find_entity_flee_step(self, creature, player_character):
+        x, y, depth = creature.pos
+        player_x, player_y, _ = player_character.pos
+        options = [
+            (next_x, next_y, depth)
+            for next_x, next_y in (
+                (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)
+            )
+            if self.get_tile(next_x, next_y, depth) is None
+            and (next_x, next_y) != (player_x, player_y)
+        ]
+        if not options:
+            return None
+        return max(
+            options,
+            key=lambda point: abs(point[0] - player_x) + abs(point[1] - player_y),
+        )
+
+    def _find_entity_wander_step(self, creature):
+        x, y, depth = creature.pos
+        options = [
+            (next_x, next_y, depth)
+            for next_x, next_y in (
+                (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)
+            )
+            if self.get_tile(next_x, next_y, depth) is None
+        ]
+        return random.choice(options) if options else None
+
+    def _move_entity(self, creature, destination):
+        old_x, old_y, old_depth = creature.pos
+        next_x, next_y, next_depth = destination
+        if (
+            self.get_tile(next_x, next_y, next_depth) is not None
+            or self.get_tile(old_x, old_y, old_depth) is not creature
+        ):
+            return False
+        self.set_tile(old_x, old_y, old_depth, None)
+        creature.move(destination)
+        self.set_tile(next_x, next_y, next_depth, creature)
+        return True
+
+    def spawn_entity(self, preset, near_pos):
+        x, y, depth = near_pos
+        candidates = sorted(
+            (
+                (candidate_x, candidate_y)
+                for distance in (1, 2)
+                for candidate_x in range(x - distance, x + distance + 1)
+                for candidate_y in range(y - distance, y + distance + 1)
+                if abs(candidate_x - x) + abs(candidate_y - y) == distance
+            ),
+            key=lambda position: (
+                abs(position[0] - x) + abs(position[1] - y),
+                position[1],
+                position[0],
+            ),
+        )
+        for candidate_x, candidate_y in candidates:
+            if self.get_tile(candidate_x, candidate_y, depth) is not None:
+                continue
+            creature = entity.from_preset(
+                preset, (candidate_x, candidate_y, depth)
+            )
+            self.set_tile(candidate_x, candidate_y, depth, creature)
+            return creature
+        return None
 
     def get_visible_tiles(self, x, y, depth):
         return [
@@ -647,8 +1111,8 @@ class world:
         chunk_layers = self.chunks[chunk_key]
         chunk_layers[depth][local_y][local_x] = tile
 
-    def create_block(self, preset_id, pos):
-        presets = load_block_presets()
+    def create_block(self, preset_id, pos, presets=None):
+        presets = load_block_presets() if presets is None else presets
         if preset_id not in presets:
             raise KeyError(f"Unknown block preset: {preset_id}")
         return block.from_preset(presets[preset_id], pos)
@@ -657,16 +1121,26 @@ class world:
         preset_id = result["id"] if isinstance(result, dict) else result
         return self.create_crafted_item(preset_id)
 
-    def create_crafted_item(self, item_id, pos=(0, 0, 0)):
-        item_presets = load_item_presets()
+    def create_crafted_item(
+        self, item_id, pos=(0, 0, 0), item_presets=None, block_presets=None
+    ):
+        item_presets = (
+            load_item_presets() if item_presets is None else item_presets
+        )
         item_preset = item_presets.get(item_id)
         if item_preset is None:
-            block_presets = load_block_presets()
+            block_presets = (
+                load_block_presets()
+                if block_presets is None else block_presets
+            )
             if item_id not in block_presets:
                 raise KeyError(f"Unknown crafted item preset: {item_id}")
             return block.from_preset(block_presets[item_id], pos)
         if item_preset.get("kind") == "block":
-            block_presets = load_block_presets()
+            block_presets = (
+                load_block_presets()
+                if block_presets is None else block_presets
+            )
             if item_id not in block_presets:
                 raise ValueError(
                     f"Crafted block '{item_id}' has no matching block preset."
@@ -780,28 +1254,377 @@ class world:
         for row in self.map:
             print(" ".join(tile.icon if tile is not None else " " for tile in row))
 
+
+def serialize_game_object(game_object):
+    pos = list(game_object.pos)
+    serialized = {"pos": pos, "count": getattr(game_object, "count", 1)}
+    if isinstance(game_object, block):
+        serialized.update(type="block", id=game_object.preset_id)
+        if game_object.grows_into_tree:
+            serialized["growth_elapsed"] = max(
+                0.0, time.monotonic() - game_object.planted_at
+            )
+    elif isinstance(game_object, entity):
+        preset_id = getattr(game_object, "preset_id", None)
+        if preset_id is None:
+            raise ValueError(f"Cannot save entity without a preset id: {game_object.name}")
+        serialized.update(
+            type="entity",
+            id=preset_id,
+            health=game_object.health,
+        )
+    elif isinstance(game_object, storageObject):
+        serialized.update(
+            type="storage",
+            id=game_object.item_id,
+            contents=[
+                serialize_game_object(item) for item in game_object.contents
+            ],
+        )
+    elif isinstance(game_object, craftedItem):
+        serialized.update(type="item", id=game_object.item_id)
+        if isinstance(game_object, toolItem):
+            serialized["durability"] = game_object.durability
+    else:
+        item_id = getattr(game_object, "item_id", None)
+        if item_id is None:
+            raise ValueError(f"Cannot save unsupported object: {game_object.name}")
+        serialized.update(type="item", id=item_id)
+    return serialized
+
+
+def deserialize_game_object(
+    serialized, game_world, block_presets=None, item_presets=None,
+    entity_presets=None,
+):
+    if not isinstance(serialized, dict):
+        raise ValueError("Save contains an invalid object entry.")
+    if block_presets is None:
+        block_presets = load_block_presets()
+    if item_presets is None:
+        item_presets = load_item_presets()
+    if entity_presets is None:
+        entity_presets = load_entity_presets()
+    pos = tuple(serialized["pos"])
+    object_type = serialized["type"]
+    preset_id = serialized["id"]
+    if object_type == "block":
+        restored = game_world.create_block(preset_id, pos, block_presets)
+        if restored.grows_into_tree:
+            restored.planted_at = (
+                time.monotonic() - serialized.get("growth_elapsed", 0.0)
+            )
+    elif object_type == "entity":
+        if preset_id not in entity_presets:
+            raise ValueError(f"Save refers to unknown entity preset '{preset_id}'.")
+        restored = entity.from_preset(entity_presets[preset_id], pos)
+        restored.hp = serialized["health"]
+    elif object_type in ("item", "storage"):
+        restored = game_world.create_crafted_item(
+            preset_id, pos, item_presets, block_presets
+        )
+        if object_type == "storage":
+            if not isinstance(restored, storageObject):
+                raise ValueError(f"Save item '{preset_id}' is not a storage object.")
+            if not isinstance(serialized["contents"], list):
+                raise ValueError(f"Save storage '{preset_id}' has invalid contents.")
+            restored.contents = [
+                deserialize_game_object(
+                    item,
+                    game_world,
+                    block_presets,
+                    item_presets,
+                    entity_presets,
+                )
+                for item in serialized["contents"]
+            ]
+        if isinstance(restored, toolItem):
+            restored.durability = serialized["durability"]
+    else:
+        raise ValueError(f"Save contains unsupported object type '{object_type}'.")
+    if getattr(restored, "stackable", False):
+        restored.count = serialized.get("count", 1)
+    return restored
+
+
+def save_game_data(
+    save_path, game_world, player_character, selected_layer,
+    hotbar_items=None, selected_hotbar_slot=0,
+):
+    chunks = []
+    for (chunk_x, chunk_y), layers in sorted(game_world.chunks.items()):
+        chunks.append({
+            "x": chunk_x,
+            "y": chunk_y,
+            "layers": [
+                [
+                    [
+                        serialize_game_object(tile) if tile is not None else None
+                        for tile in row
+                    ]
+                    for row in layer
+                ]
+                for layer in layers
+            ],
+        })
+    data = {
+        "version": SAVE_VERSION,
+        "name": save_path.stem.replace("_", " "),
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+        "chunk_width": game_world.chunk_width,
+        "chunk_height": game_world.chunk_height,
+        "chunks": chunks,
+        "player": {
+            "pos": list(player_character.pos),
+            "health": player_character.health,
+            "inventory": [
+                serialize_game_object(item)
+                for item in player_character.inventory
+            ],
+            "selected_layer": selected_layer,
+            "hotbar": [
+                player_character.inventory.index(item)
+                if item in player_character.inventory else None
+                for item in (hotbar_items or [])
+            ],
+            "selected_hotbar_slot": selected_hotbar_slot,
+        },
+    }
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = save_path.with_suffix(".tmp")
+    try:
+        with temporary_path.open("w", encoding="utf-8") as save_file:
+            json.dump(data, save_file, separators=(",", ":"))
+        temporary_path.replace(save_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def load_game_data(save_path, game_world):
+    with save_path.open(encoding="utf-8") as save_file:
+        data = json.load(save_file)
+    if not isinstance(data, dict):
+        raise ValueError(f"{save_path.name} does not contain a save object.")
+    if data.get("version") != SAVE_VERSION:
+        raise ValueError(f"Unsupported save version in {save_path.name}.")
+    width = data.get("chunk_width")
+    height = data.get("chunk_height")
+    if (
+        not isinstance(width, int)
+        or not isinstance(height, int)
+        or width < 1
+        or height < 1
+    ):
+        raise ValueError(f"{save_path.name} has invalid chunk dimensions.")
+    loaded_chunks = {}
+    chunks_data = data.get("chunks")
+    if not isinstance(chunks_data, list):
+        raise ValueError(f"{save_path.name} has invalid chunk data.")
+    block_presets = load_block_presets()
+    item_presets = load_item_presets()
+    entity_presets = load_entity_presets()
+    for chunk_data in chunks_data:
+        if not isinstance(chunk_data, dict):
+            raise ValueError(f"{save_path.name} has an invalid chunk entry.")
+        chunk_x = chunk_data["x"]
+        chunk_y = chunk_data["y"]
+        if not isinstance(chunk_x, int) or not isinstance(chunk_y, int):
+            raise ValueError(f"{save_path.name} has invalid chunk coordinates.")
+        layers_data = chunk_data["layers"]
+        if not isinstance(layers_data, list):
+            raise ValueError(f"{save_path.name} has invalid chunk layers.")
+        if len(layers_data) != world.Y_LEVEL_COUNT:
+            raise ValueError(f"{save_path.name} has an invalid Y-level count.")
+        layers = []
+        for depth, layer_data in enumerate(layers_data):
+            if not isinstance(layer_data, list):
+                raise ValueError(
+                    f"{save_path.name} has an invalid chunk layer."
+                )
+            if len(layer_data) != height:
+                raise ValueError(f"{save_path.name} has invalid chunk height.")
+            layer = []
+            for local_y, row_data in enumerate(layer_data):
+                if not isinstance(row_data, list):
+                    raise ValueError(f"{save_path.name} has an invalid chunk row.")
+                if len(row_data) != width:
+                    raise ValueError(f"{save_path.name} has invalid chunk width.")
+                row = []
+                for local_x, tile_data in enumerate(row_data):
+                    if tile_data is None:
+                        row.append(None)
+                    else:
+                        global_x = chunk_x * width + local_x
+                        global_y = chunk_y * height + local_y
+                        row.append(
+                            deserialize_game_object(
+                                tile_data,
+                                game_world,
+                                block_presets,
+                                item_presets,
+                                entity_presets,
+                            )
+                        )
+                layer.append(row)
+            layers.append(layer)
+        loaded_chunks[(chunk_x, chunk_y)] = layers
+    if not loaded_chunks:
+        raise ValueError(f"{save_path.name} contains no world chunks.")
+
+    player_data = data.get("player")
+    if not isinstance(player_data, dict):
+        raise ValueError(f"{save_path.name} has invalid player data.")
+    player_pos = tuple(player_data["pos"])
+    if (
+        len(player_pos) != 3
+        or any(not isinstance(coordinate, int) for coordinate in player_pos)
+        or not 0 <= player_pos[2] < world.Y_LEVEL_COUNT
+    ):
+        raise ValueError(f"{save_path.name} has an invalid player position.")
+    health = player_data["health"]
+    if not isinstance(health, int) or not 0 <= health <= 100:
+        raise ValueError(f"{save_path.name} has invalid player health.")
+    selected_layer = player_data["selected_layer"]
+    if (
+        not isinstance(selected_layer, int)
+        or not 0 <= selected_layer < world.Y_LEVEL_COUNT
+    ):
+        raise ValueError(f"{save_path.name} has an invalid camera layer.")
+    if not isinstance(player_data["inventory"], list):
+        raise ValueError(f"{save_path.name} has invalid player inventory.")
+    inventory = [
+        deserialize_game_object(
+            item,
+            game_world,
+            block_presets,
+            item_presets,
+            entity_presets,
+        )
+        for item in player_data["inventory"]
+    ]
+    hotbar = player_data.get("hotbar", [])
+    if any(
+        index is not None
+        and (not isinstance(index, int) or not 0 <= index < len(inventory))
+        for index in hotbar
+    ):
+        raise ValueError(f"{save_path.name} has an invalid hotbar.")
+    selected_hotbar_slot = player_data.get("selected_hotbar_slot", 0)
+    if not isinstance(selected_hotbar_slot, int) or not 0 <= selected_hotbar_slot < 5:
+        raise ValueError(f"{save_path.name} has an invalid selected hotbar slot.")
+    active_chunk_key = (player_pos[0] // width, player_pos[1] // height)
+    active_layers = loaded_chunks.get(active_chunk_key)
+    if active_layers is None:
+        raise ValueError(f"{save_path.name} does not include the player's chunk.")
+    game_world.chunk_width = width
+    game_world.chunk_height = height
+    game_world.chunks = loaded_chunks
+    game_world.active_chunk = active_chunk_key
+    game_world.layers = active_layers
+    game_world.map = active_layers[world.SURFACE_DEPTH]
+    game_world.subsurface = active_layers[world.SURFACE_DEPTH + 1:]
+    return {
+        "pos": player_pos,
+        "health": health,
+        "inventory": inventory,
+        "selected_layer": selected_layer,
+        "hotbar": [
+            inventory[index] if index is not None else None
+            for index in hotbar
+        ],
+        "selected_hotbar_slot": selected_hotbar_slot,
+    }
+
+
+def save_game_paths():
+    if not SAVE_GAMES_DIR.exists():
+        return []
+    return sorted(
+        SAVE_GAMES_DIR.glob("*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def save_path_for_name(name):
+    safe_name = re.sub(r"[^A-Za-z0-9 _-]", "", name).strip().replace(" ", "_")
+    if not safe_name:
+        raise ValueError("Enter a save name using letters, numbers, spaces, '_' or '-'.")
+    return SAVE_GAMES_DIR / f"{safe_name}.json"
+
+
 def main():
     game_world = world()
     width, height = 10, 10
     game_world.generate_world(width, height)
     crafting_recipes = load_crafting_recipes()
     player_x, player_y = width // 2 - 1, height // 2 - 1
+    player_surface_depth = game_world.get_surface_depth(player_x, player_y)
     player_character = player(
-        "Player", "@", "The adventurer.", (player_x, player_y, 0), 100, 10, []
+        "Player", "@", "The adventurer.",
+        (player_x, player_y, player_surface_depth), 100, 10, []
     )
-    selected_layer = 0
+    selected_layer = player_surface_depth
+    game_active = False
+    entity_update_job = None
 
     root = tk.Tk()
     root.title("Goblin Fortress")
-    root.resizable(False, False)
+    root.resizable(True, True)
+    root.attributes("-fullscreen", False)
+
+    def toggle_fullscreen(_event=None):
+        is_fullscreen = bool(root.attributes("-fullscreen"))
+        root.attributes("-fullscreen", not is_fullscreen)
+        return "break"
+
+    def leave_fullscreen(_event=None):
+        if root.attributes("-fullscreen"):
+            root.attributes("-fullscreen", False)
+            return "break"
+        return None
+
+    root.bind("<F11>", toggle_fullscreen)
+    root.bind("<Escape>", leave_fullscreen)
+
+    menu_frame = tk.Frame(root, padx=48, pady=36, background="#202B23")
+    menu_frame.pack(fill="both", expand=True)
+    tk.Label(
+        menu_frame,
+        text="GOBLIN FORTRESS",
+        font=("Consolas", 24, "bold"),
+        foreground="#E8D5A5",
+        background="#202B23",
+    ).pack(pady=(12, 8))
+    tk.Label(
+        menu_frame,
+        text="Explore, gather, craft, and survive.",
+        font=("Consolas", 11),
+        foreground="#C5D0C0",
+        background="#202B23",
+    ).pack(pady=(0, 24))
+    menu_buttons = tk.Frame(menu_frame, background="#202B23")
+    menu_buttons.pack()
+    menu_status = tk.Label(
+        menu_frame,
+        text="",
+        foreground="#F0C080",
+        background="#202B23",
+        wraplength=360,
+    )
+    menu_status.pack(pady=(12, 0))
 
     main_frame = tk.Frame(root, padx=12, pady=12)
-    main_frame.pack()
     map_column = tk.Frame(main_frame)
     map_column.grid(row=0, column=0, sticky="n")
     right_panel = tk.Frame(main_frame)
     right_panel.grid(row=0, column=1, padx=(12, 0), sticky="n")
 
+    tk.Button(
+        map_column,
+        text="Save / Menu",
+        command=lambda: open_save_menu(),
+    ).pack(anchor="w", pady=(0, 5))
     map_frame = tk.LabelFrame(map_column, text="World", padx=8, pady=8)
     map_frame.pack(anchor="w")
     cells = []
@@ -823,6 +1646,14 @@ def main():
     layer_buttons = tk.Frame(layer_frame)
     layer_buttons.pack(fill="x", pady=(5, 0))
 
+    health_frame = tk.LabelFrame(right_panel, text="Player Health", padx=8, pady=6)
+    health_frame.pack(fill="x", pady=(8, 0))
+    health_bar = tk.Canvas(
+        health_frame, width=190, height=22, highlightthickness=1,
+        highlightbackground="#444444", background="#202020",
+    )
+    health_bar.pack(fill="x")
+
     hotbar_frame = tk.LabelFrame(right_panel, text="Hotbar", padx=8, pady=8)
     hotbar_frame.pack(fill="x", pady=(8, 0))
     hotbar_items = [None] * 5
@@ -839,7 +1670,25 @@ def main():
     inventory_search.pack(fill="x", pady=(0, 5))
     inventory_list = tk.Listbox(inventory_frame, width=26, height=9, exportselection=False)
     inventory_list.pack(fill="both", expand=True)
+    tk.Button(
+        inventory_frame,
+        text="Craft from inventory",
+        command=lambda: open_inventory_crafting(),
+    ).pack(fill="x", pady=(5, 0))
     inventory_visible = []
+    simple_crafting_recipe_ids = {
+        "oak_planks",
+        "oak_sapling",
+        "grass",
+        "dirt_bricks",
+        "stone_bricks",
+        "torch",
+        "stone_pickaxe",
+        "stone_shovel",
+    }
+    crafting_queue = []
+    crafting_job = None
+    crafting_ui = None
     hovered_name = tk.Label(
         inventory_frame,
         text="Hover over a map tile",
@@ -877,7 +1726,13 @@ def main():
             if item not in player_character.inventory:
                 hotbar_items[index] = None
                 item = None
-            label = f"{index + 1}: {item.icon} {item.name}" if item else f"{index + 1}: Empty"
+            stack_count = (
+                f" x{item.count}" if item and item.stackable else ""
+            )
+            label = (
+                f"{index + 1}: {item.icon} {item.name}{stack_count}"
+                if item else f"{index + 1}: Empty"
+            )
             button.config(
                 text=label,
                 relief="sunken" if index == selected_hotbar_slot else "raised",
@@ -919,14 +1774,213 @@ def main():
         ]
         inventory_list.delete(0, tk.END)
         for item in inventory_visible:
+            stack_count = f" x{item.count}" if item.stackable else ""
             durability = (
                 f" ({item.durability} uses)"
                 if isinstance(item, toolItem) else ""
             )
-            inventory_list.insert(tk.END, f"{item.icon} {item.name}{durability}")
+            inventory_list.insert(
+                tk.END, f"{item.icon} {item.name}{stack_count}{durability}"
+            )
         if selected in inventory_visible:
             inventory_list.selection_set(inventory_visible.index(selected))
         refresh_hotbar()
+        refresh_crafting_menu()
+
+    def refresh_crafting_menu():
+        if crafting_ui is None or not crafting_ui["window"].winfo_exists():
+            return
+        previous = (
+            crafting_ui["recipes"][crafting_ui["recipe_list"].curselection()[0]]
+            if crafting_ui["recipe_list"].curselection()
+            else None
+        )
+        available_recipes = [
+            recipe
+            for recipe in crafting_recipes
+            if recipe["id"] in simple_crafting_recipe_ids
+            and not missing_recipe_ingredients(
+                player_character.inventory, recipe
+            )[1]
+        ]
+        crafting_ui["recipes"][:] = available_recipes
+        recipe_list = crafting_ui["recipe_list"]
+        recipe_list.delete(0, tk.END)
+        for recipe in available_recipes:
+            result = recipe["result"]
+            recipe_list.insert(
+                tk.END, f"{result['icon']} {recipe['name']} x{result['quantity']}"
+            )
+        if previous in available_recipes:
+            recipe_list.selection_set(available_recipes.index(previous))
+        elif available_recipes:
+            recipe_list.selection_set(0)
+        update_crafting_recipe_details()
+        update_crafting_queue_display()
+
+    def update_crafting_recipe_details(_event=None):
+        if crafting_ui is None or not crafting_ui["window"].winfo_exists():
+            return
+        selection = crafting_ui["recipe_list"].curselection()
+        if not selection:
+            crafting_ui["details"].config(
+                text="Gather ingredients to unlock simple recipes."
+            )
+            return
+        recipe = crafting_ui["recipes"][selection[0]]
+        ingredients = "\n".join(
+            f"{ingredient['quantity']} x "
+            f"{ingredient['id'].replace('_', ' ').title()}"
+            for ingredient in recipe["ingredients"]
+        )
+        result = recipe["result"]
+        crafting_ui["details"].config(
+            text=(
+                f"{result['name']} x{result['quantity']}\n\n"
+                f"Ingredients:\n{ingredients}\n\n"
+                f"{recipe.get('description', '')}"
+            )
+        )
+
+    def update_crafting_queue_display():
+        if crafting_ui is None or not crafting_ui["window"].winfo_exists():
+            return
+        queue_list = crafting_ui["queue_list"]
+        queue_list.delete(0, tk.END)
+        for index, recipe in enumerate(crafting_queue, start=1):
+            queue_list.insert(
+                tk.END, f"{index}. {recipe['name']} x{recipe['result']['quantity']}"
+            )
+        if crafting_job is None:
+            crafting_ui["current"].config(text="Idle")
+            crafting_ui["progress"].delete("all")
+        else:
+            crafting_ui["current"].config(
+                text=f"Crafting: {crafting_job['recipe']['name']}"
+            )
+
+    def open_inventory_crafting():
+        nonlocal crafting_ui
+        if crafting_ui is not None and crafting_ui["window"].winfo_exists():
+            crafting_ui["window"].deiconify()
+            crafting_ui["window"].lift()
+            refresh_crafting_menu()
+            return
+
+        dialog = tk.Toplevel(root)
+        dialog.title("Inventory crafting")
+        dialog.transient(root)
+        dialog.geometry("580x440")
+        crafting_ui = {"window": dialog, "recipes": []}
+        content = tk.Frame(dialog, padx=10, pady=10)
+        content.pack(fill="both", expand=True)
+        recipe_column = tk.Frame(content)
+        recipe_column.pack(side="left", fill="both", expand=True)
+        detail_column = tk.Frame(content, padx=10)
+        detail_column.pack(side="left", fill="both", expand=True)
+        tk.Label(recipe_column, text="Available simple recipes").pack(anchor="w")
+        recipe_list = tk.Listbox(
+            recipe_column, width=30, height=12, exportselection=False
+        )
+        recipe_list.pack(fill="both", expand=True, pady=(4, 0))
+        details = tk.Label(
+            detail_column,
+            text="",
+            anchor="nw",
+            justify="left",
+            wraplength=230,
+        )
+        details.pack(fill="both", expand=True)
+        tk.Button(
+            detail_column,
+            text="Add to crafting queue",
+            command=queue_selected_recipe,
+        ).pack(anchor="e", pady=(8, 0))
+        current = tk.Label(content, text="Idle", anchor="w")
+        current.pack(fill="x", pady=(10, 3))
+        progress = tk.Canvas(
+            content,
+            width=540,
+            height=18,
+            highlightthickness=1,
+            highlightbackground="#444444",
+            background="#202020",
+        )
+        progress.pack(fill="x")
+        tk.Label(content, text="Waiting in queue", anchor="w").pack(
+            fill="x", pady=(8, 2)
+        )
+        queue_list = tk.Listbox(content, height=5, exportselection=False)
+        queue_list.pack(fill="both", expand=True)
+        crafting_ui.update(
+            recipe_list=recipe_list,
+            details=details,
+            current=current,
+            progress=progress,
+            queue_list=queue_list,
+        )
+        recipe_list.bind("<<ListboxSelect>>", update_crafting_recipe_details)
+        refresh_crafting_menu()
+
+    def queue_selected_recipe():
+        if crafting_ui is None or not crafting_ui["window"].winfo_exists():
+            return
+        selection = crafting_ui["recipe_list"].curselection()
+        if not selection:
+            return
+        recipe = crafting_ui["recipes"][selection[0]]
+        required, missing = missing_recipe_ingredients(
+            player_character.inventory, recipe
+        )
+        if missing:
+            refresh_crafting_menu()
+            return
+        consume_recipe_ingredients(player_character.inventory, required)
+        crafting_queue.append(recipe)
+        refresh_display()
+        update_crafting_queue_display()
+        update_crafting_progress()
+
+    def update_crafting_progress():
+        nonlocal crafting_job
+        if crafting_job is None:
+            if not crafting_queue:
+                update_crafting_queue_display()
+                return
+            recipe = crafting_queue.pop(0)
+            crafting_job = {
+                "recipe": recipe,
+                "started_at": time.monotonic(),
+                "duration": 1.5 + 0.5 * sum(
+                    ingredient["quantity"]
+                    for ingredient in recipe["ingredients"]
+                ),
+            }
+            update_crafting_queue_display()
+
+        elapsed = time.monotonic() - crafting_job["started_at"]
+        progress_ratio = min(1.0, elapsed / crafting_job["duration"])
+        if crafting_ui is not None and crafting_ui["window"].winfo_exists():
+            progress = crafting_ui["progress"]
+            progress.delete("all")
+            progress.create_rectangle(
+                0,
+                0,
+                round(540 * progress_ratio),
+                18,
+                fill="#52D273",
+                outline="",
+            )
+        if progress_ratio >= 1.0:
+            recipe = crafting_job["recipe"]
+            add_crafting_result(
+                player_character.inventory, recipe["result"], game_world
+            )
+            crafting_job = None
+            refresh_display()
+            update_crafting_queue_display()
+        if crafting_job is not None or crafting_queue:
+            root.after(50, update_crafting_progress)
 
     def set_hovered_cell(x, y):
         nonlocal hovered_cell
@@ -949,16 +2003,58 @@ def main():
         x, y = origin_x + cell_x, origin_y + cell_y
         player_x, player_y, player_depth = player_character.pos
         if (x, y) == (player_x, player_y) and player_depth == selected_layer:
-            hovered_name.config(text=f"@ {player_character.name}")
+            hovered_name.config(
+                text=(
+                    f"@ {player_character.name} "
+                    f"(Y level {world.Y_LEVEL_COUNT - player_depth})"
+                )
+            )
             return
 
         visible_tiles = game_world.get_visible_tiles(x, y, selected_layer)
+        if visible_tiles:
+            depth, tile = visible_tiles[0]
+            tile_name = tile.name
+        else:
+            depth = selected_layer
+            tile_name = "Air"
         hovered_name.config(
-            text=visible_tiles[0][1].name if visible_tiles else "Air"
+            text=f"{tile_name} (Y level {world.Y_LEVEL_COUNT - depth})"
+        )
+
+    def draw_entity(canvas, creature):
+        color = creature.foreground_color
+        canvas.create_line(17, 13, 17, 22, fill=color, width=2)
+        canvas.create_line(17, 15, 10, 19, fill=color, width=2)
+        canvas.create_line(17, 15, 24, 19, fill=color, width=2)
+        canvas.create_line(17, 22, 12, 29, fill=color, width=2)
+        canvas.create_line(17, 22, 22, 29, fill=color, width=2)
+        canvas.create_oval(
+            12, 2, 22, 12, fill=color, outline="#FFFFFF", width=1
+        )
+        canvas.create_text(
+            17, 7, text=creature.icon, fill="#FFFFFF",
+            font=("Consolas", 7, "bold"),
         )
 
     def refresh_display():
         player_x, player_y, player_depth = player_character.pos
+        health_bar.delete("all")
+        health_ratio = (
+            max(0, min(1, player_character.hp / player_character.max_health))
+            if player_character.max_health > 0 else 0
+        )
+        health_bar.create_rectangle(
+            0, 0, round(190 * health_ratio), 22,
+            fill="#3DBB58" if health_ratio > 0.3 else "#D44343",
+            outline="",
+        )
+        health_bar.create_text(
+            95, 11,
+            text=f"HP {player_character.hp}/{player_character.max_health}",
+            fill="#FFFFFF",
+            font=("Consolas", 10, "bold"),
+        )
         game_world.load_chunk(
             player_x // game_world.chunk_width,
             player_y // game_world.chunk_height,
@@ -1007,14 +2103,11 @@ def main():
                         outline="",
                     )
                 if is_player:
-                    cell.create_text(
-                        17, 16, text=player_character.icon,
-                        fill=color_at_depth(
-                            player_character.foreground_color,
-                            player_depth,
-                            player_depth,
-                        ),
-                        font=("Consolas", 16, "bold"),
+                    draw_entity(cell, player_character)
+                elif isinstance(tile, entity):
+                    draw_entity(
+                        cell,
+                        tile,
                     )
                 elif tile is not None:
                     cell.create_text(
@@ -1050,6 +2143,169 @@ def main():
         status.config(
             text=f"Position: ({player_x}, {player_y})  Health: {player_character.health}"
         )
+
+    def refresh_menu_save_buttons():
+        try:
+            paths = save_game_paths()
+        except OSError as error:
+            menu_status.config(text=f"Could not read save games: {error}")
+            paths = []
+        continue_button.config(state="normal" if paths else "disabled")
+
+    def restore_game(path):
+        nonlocal selected_layer, selected_hotbar_slot, mining_state
+        try:
+            restored = load_game_data(path, game_world)
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
+            menu_status.config(text=f"Could not load {path.name}: {error}")
+            return False
+        player_character.move(restored["pos"])
+        player_character.hp = restored["health"]
+        player_character.inventory[:] = restored["inventory"]
+        selected_layer = restored["selected_layer"]
+        selected_hotbar_slot = restored["selected_hotbar_slot"]
+        hotbar_items[:] = (restored["hotbar"] + [None] * 5)[:5]
+        mining_state = None
+        refresh_display()
+        menu_status.config(text=f"Loaded {path.stem.replace('_', ' ')}.")
+        return True
+
+    def continue_game():
+        try:
+            paths = save_game_paths()
+        except OSError as error:
+            menu_status.config(text=f"Could not read save games: {error}")
+            return
+        if not paths:
+            menu_status.config(text="No saved games yet.")
+            refresh_menu_save_buttons()
+            return
+        if restore_game(paths[0]):
+            start_game()
+
+    def open_load_game_menu():
+        try:
+            paths = save_game_paths()
+        except OSError as error:
+            menu_status.config(text=f"Could not read save games: {error}")
+            return
+        if not paths:
+            menu_status.config(text="No saved games yet.")
+            return
+
+        dialog = tk.Toplevel(root)
+        dialog.title("Load game")
+        dialog.transient(root)
+        dialog.grab_set()
+        tk.Label(dialog, text="Select a saved game:").pack(
+            anchor="w", padx=10, pady=(10, 4)
+        )
+        save_list = tk.Listbox(dialog, width=42, height=10, exportselection=False)
+        save_list.pack(fill="both", expand=True, padx=10, pady=4)
+        load_status = tk.Label(dialog, text="", anchor="w", wraplength=300)
+        load_status.pack(fill="x", padx=10, pady=4)
+        for path in paths:
+            saved_time = datetime.fromtimestamp(path.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            save_list.insert(
+                tk.END, f"{path.stem.replace('_', ' ')}  ({saved_time})"
+            )
+        save_list.selection_set(0)
+
+        def load_selected():
+            selection = save_list.curselection()
+            if not selection:
+                load_status.config(text="Select a saved game.")
+                return
+            if restore_game(paths[selection[0]]):
+                dialog.destroy()
+                start_game()
+
+        tk.Button(
+            dialog, text="Load selected game", command=load_selected
+        ).pack(anchor="e", padx=10, pady=(4, 10))
+        save_list.bind("<Double-Button-1>", lambda _event: load_selected())
+
+    def open_save_menu():
+        dialog = tk.Toplevel(root)
+        dialog.title("Save game")
+        dialog.transient(root)
+        dialog.grab_set()
+        tk.Label(dialog, text="Save name:").pack(
+            anchor="w", padx=12, pady=(12, 4)
+        )
+        name_var = tk.StringVar(
+            value=datetime.now().strftime("Save %Y-%m-%d %H-%M-%S")
+        )
+        name_entry = tk.Entry(dialog, textvariable=name_var, width=36)
+        name_entry.pack(fill="x", padx=12)
+        save_status = tk.Label(dialog, text="", anchor="w", wraplength=300)
+        save_status.pack(fill="x", padx=12, pady=8)
+
+        def save_current_game():
+            try:
+                save_path = save_path_for_name(name_var.get())
+                if save_path.exists() and not messagebox.askyesno(
+                    "Overwrite save",
+                    f"Replace the existing save '{save_path.stem}'?",
+                    parent=dialog,
+                ):
+                    return
+                save_game_data(
+                    save_path,
+                    game_world,
+                    player_character,
+                    selected_layer,
+                    hotbar_items,
+                    selected_hotbar_slot,
+                )
+            except (OSError, ValueError, TypeError) as error:
+                save_status.config(text=f"Could not save game: {error}")
+                return
+            save_status.config(
+                text=f"Saved as {save_path.stem.replace('_', ' ')}."
+            )
+            menu_status.config(text=save_status.cget("text"))
+            refresh_menu_save_buttons()
+
+        tk.Button(
+            dialog, text="Save game", command=save_current_game
+        ).pack(anchor="e", padx=12, pady=(0, 6))
+
+        def return_to_menu():
+            dialog.destroy()
+            show_main_menu()
+
+        tk.Button(
+            dialog, text="Return to main menu", command=return_to_menu
+        ).pack(anchor="e", padx=12, pady=(0, 12))
+        name_entry.focus_set()
+
+    def show_main_menu():
+        nonlocal game_active, entity_update_job
+        game_active = False
+        if entity_update_job is not None:
+            root.after_cancel(entity_update_job)
+            entity_update_job = None
+        root.unbind("<KeyPress>")
+        main_frame.pack_forget()
+        menu_frame.pack(fill="both", expand=True)
+        refresh_menu_save_buttons()
+
+    def start_new_game():
+        nonlocal selected_layer, selected_hotbar_slot, mining_state
+        game_world.generate_world(width, height)
+        player_x, player_y = width // 2 - 1, height // 2 - 1
+        start_depth = game_world.get_surface_depth(player_x, player_y)
+        player_character.move((player_x, player_y, start_depth))
+        player_character.hp = player_character.max_health
+        player_character.inventory.clear()
+        selected_layer = start_depth
+        selected_hotbar_slot = 0
+        hotbar_items[:] = [None] * 5
+        mining_state = None
+        start_game()
 
     def change_layer(amount):
         nonlocal selected_layer
@@ -1147,7 +2403,6 @@ def main():
         if not in_interaction_range(target_x, target_y):
             status.config(text="That block is outside your 4-block interaction radius.")
             return
-        depth = selected_layer
         player_pos = player_character.pos
         if (
             abs(depth - player_pos[2]) > 4
@@ -1216,9 +2471,11 @@ def main():
                      "and both spaces are occupied."
             )
             return
-        item.move((target_x, target_y, depth))
-        game_world.set_tile(target_x, target_y, depth, item)
-        player_character.remove_from_inventory(item)
+        placed_item = game_world.create_crafted_item(
+            item_identifier(item), (target_x, target_y, depth)
+        )
+        game_world.set_tile(target_x, target_y, depth, placed_item)
+        player_character.remove_from_inventory(item, 1)
         status.config(text=f"Placed {item.name}.")
         refresh_display()
 
@@ -1266,9 +2523,15 @@ def main():
             chest_list.delete(0, tk.END)
             player_list.delete(0, tk.END)
             for item in chest_visible:
-                chest_list.insert(tk.END, f"{item.icon} {item.name}")
+                stack_count = f" x{item.count}" if item.stackable else ""
+                chest_list.insert(
+                    tk.END, f"{item.icon} {item.name}{stack_count}"
+                )
             for item in player_visible:
-                player_list.insert(tk.END, f"{item.icon} {item.name}")
+                stack_count = f" x{item.count}" if item.stackable else ""
+                player_list.insert(
+                    tk.END, f"{item.icon} {item.name}{stack_count}"
+                )
             if chest_selected in chest_visible:
                 chest_list.selection_set(chest_visible.index(chest_selected))
             if player_selected in player_visible:
@@ -1281,8 +2544,8 @@ def main():
                 status.config(text="Select an item to transfer.")
                 return
             item = visible[selection[0]]
-            destination.append(item)
             source.remove(item)
+            add_item_to_collection(destination, item)
             update_lists()
 
         chest_search.bind("<KeyRelease>", lambda _event: update_lists())
@@ -1509,8 +2772,8 @@ def main():
                 return
             for child in dialog.winfo_children():
                 child.destroy()
-            dialog.title("Admin item panel")
-            dialog.geometry("420x420")
+            dialog.title("Admin panel")
+            dialog.geometry("440x620")
 
             tk.Label(dialog, text="Search blocks and items:").pack(
                 padx=12, pady=(12, 4), anchor="w"
@@ -1518,8 +2781,8 @@ def main():
             search_var = tk.StringVar()
             search_entry = tk.Entry(dialog, textvariable=search_var)
             search_entry.pack(fill="x", padx=12)
-            item_list = tk.Listbox(dialog, height=14, exportselection=False)
-            item_list.pack(fill="both", expand=True, padx=12, pady=8)
+            item_list = tk.Listbox(dialog, height=10, exportselection=False)
+            item_list.pack(fill="both", expand=True, padx=12, pady=(4, 8))
             quantity_row = tk.Frame(dialog)
             quantity_row.pack(fill="x", padx=12)
             tk.Label(quantity_row, text="Quantity:").pack(side="left")
@@ -1530,6 +2793,20 @@ def main():
             quantity_entry.pack(side="left", padx=(6, 0))
             result_status = tk.Label(dialog, text="", anchor="w")
             result_status.pack(fill="x", padx=12, pady=8)
+
+            tk.Label(
+                dialog, text="Admin-only entity spawn eggs:"
+            ).pack(padx=12, pady=(6, 4), anchor="w")
+            entity_search_var = tk.StringVar()
+            entity_search = tk.Entry(dialog, textvariable=entity_search_var)
+            entity_search.pack(fill="x", padx=12)
+            entity_list = tk.Listbox(
+                dialog, height=7, exportselection=False
+            )
+            entity_list.pack(fill="x", padx=12, pady=(4, 8))
+            entity_status = tk.Label(dialog, text="", anchor="w")
+            entity_status.pack(fill="x", padx=12, pady=(0, 6))
+
             presets = load_item_presets()
             block_presets = load_block_presets()
             catalog = dict(presets)
@@ -1539,6 +2816,12 @@ def main():
                 catalog.items(), key=lambda entry: entry[1]["name"].casefold()
             )
             visible_catalog = []
+            entity_presets = load_entity_presets()
+            ordered_entities = sorted(
+                entity_presets.items(),
+                key=lambda entry: entry[1]["name"].casefold(),
+            )
+            visible_entities = []
 
             def update_catalog(_event=None):
                 query = search_var.get().strip().casefold()
@@ -1556,6 +2839,26 @@ def main():
                     )
                 if visible_catalog:
                     item_list.selection_set(0)
+
+            def update_entity_list(_event=None):
+                query = entity_search_var.get().strip().casefold()
+                visible_entities[:] = [
+                    (entity_id, preset)
+                    for entity_id, preset in ordered_entities
+                    if query in preset["name"].casefold()
+                    or query in entity_id.casefold()
+                    or query in preset["disposition"].casefold()
+                ]
+                entity_list.delete(0, tk.END)
+                for entity_id, preset in visible_entities:
+                    egg_name = f"{preset['name']} Spawn Egg"
+                    entity_list.insert(
+                        tk.END,
+                        f"{preset['icon']} {egg_name} "
+                        f"({preset['disposition']})",
+                    )
+                if visible_entities:
+                    entity_list.selection_set(0)
 
             def grant_item():
                 selection = item_list.curselection()
@@ -1580,12 +2883,55 @@ def main():
                     text=f"Granted {quantity} x {preset['name']}."
                 )
 
+            def spawn_selected_entity():
+                selection = entity_list.curselection()
+                if not selection:
+                    entity_status.config(text="Select an entity spawn egg first.")
+                    return
+                try:
+                    quantity = int(quantity_var.get())
+                except ValueError:
+                    entity_status.config(
+                        text="Quantity must be a positive whole number."
+                    )
+                    return
+                if quantity < 1:
+                    entity_status.config(text="Quantity must be at least 1.")
+                    return
+                _entity_id, preset = visible_entities[selection[0]]
+                spawned = 0
+                for _ in range(quantity):
+                    if game_world.spawn_entity(preset, player_character.pos) is None:
+                        break
+                    spawned += 1
+                if spawned:
+                    refresh_display()
+                if spawned == quantity:
+                    entity_status.config(
+                        text=f"Spawned {spawned} x {preset['name']}."
+                    )
+                else:
+                    entity_status.config(
+                        text=f"Spawned {spawned} of {quantity}; "
+                             "no nearby empty space remains."
+                    )
+
             search_entry.bind("<KeyRelease>", update_catalog)
+            entity_search.bind("<KeyRelease>", update_entity_list)
             tk.Button(
                 dialog, text="Give selected item", command=grant_item
+            ).pack(anchor="e", padx=12, pady=(0, 6))
+            tk.Button(
+                dialog, text="Use selected spawn egg",
+                command=spawn_selected_entity,
             ).pack(anchor="e", padx=12, pady=(0, 12))
             item_list.bind("<Double-Button-1>", lambda _event: grant_item())
+            entity_list.bind(
+                "<Double-Button-1>",
+                lambda _event: spawn_selected_entity(),
+            )
             update_catalog()
+            update_entity_list()
             search_entry.focus_set()
 
         tk.Button(dialog, text="Unlock", command=grant_access).pack(
@@ -1627,6 +2973,61 @@ def main():
             change_layer(-1)
         elif event.keysym in ("bracketright", "Next"):
             change_layer(1)
+
+    def update_entities():
+        nonlocal entity_update_job
+        entity_update_job = None
+        if not game_active:
+            return
+        entity_changed = game_world.update_entity_ai(player_character)
+        trees_changed = game_world.grow_saplings()
+        if entity_changed or trees_changed:
+            refresh_display()
+        entity_update_job = root.after(500, update_entities)
+
+    def start_game():
+        nonlocal game_active
+        menu_frame.pack_forget()
+        main_frame.pack()
+        root.bind("<KeyPress>", handle_movement)
+        refresh_display()
+        game_active = True
+        if entity_update_job is None:
+            update_entities()
+
+    continue_button = tk.Button(
+        menu_buttons,
+        text="Continue",
+        width=20,
+        command=continue_game,
+    )
+    continue_button.pack(pady=5)
+    continue_button.config(state="disabled")
+    tk.Button(
+        menu_buttons,
+        text="Load Game",
+        width=20,
+        command=open_load_game_menu,
+    ).pack(pady=5)
+    tk.Button(
+        menu_buttons,
+        text="New Game",
+        width=20,
+        command=start_new_game,
+    ).pack(pady=5)
+    tk.Button(
+        menu_buttons,
+        text="Quit",
+        width=20,
+        command=root.destroy,
+    ).pack(pady=5)
+    tk.Label(
+        menu_frame,
+        text="Move: WASD / arrow keys    Change layer: scroll wheel",
+        font=("Consolas", 9),
+        foreground="#AAB6A5",
+        background="#202B23",
+    ).pack(pady=(24, 0))
 
     for index in range(5):
         button = tk.Button(
@@ -1679,9 +3080,8 @@ def main():
         side="left", expand=True, fill="x", padx=(5, 0)
     )
 
-    root.bind("<KeyPress>", handle_movement)
     inventory_search.bind("<KeyRelease>", lambda _event: refresh_inventory())
-    refresh_display()
+    refresh_menu_save_buttons()
     root.mainloop()
 
 

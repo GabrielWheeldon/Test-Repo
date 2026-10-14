@@ -1,0 +1,11 @@
+{
+  "id": "glacier_stone",
+  "name": "Glacier Stone",
+  "icon": "3",
+  "description": "A solid, breakable glacier stone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.71
+}

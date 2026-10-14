@@ -1,0 +1,9 @@
+{
+  "id": "raw_sapphire",
+  "name": "Raw Sapphire",
+  "icon": "u",
+  "description": "A useful raw sapphire resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

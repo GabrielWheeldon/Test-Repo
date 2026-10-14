@@ -1,0 +1,11 @@
+{
+  "id": "arctic_slate",
+  "name": "Arctic Slate",
+  "icon": "7",
+  "description": "A solid, breakable arctic slate block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F2E7D5",
+  "background_color": "#77634B",
+  "break_time": 0.99
+}

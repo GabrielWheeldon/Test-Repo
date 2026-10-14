@@ -1,0 +1,11 @@
+{
+  "id": "obsidian",
+  "name": "Obsidian",
+  "icon": "b",
+  "description": "A solid, breakable obsidian block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#ECFFD9",
+  "background_color": "#5C7F38",
+  "break_time": 1.71
+}

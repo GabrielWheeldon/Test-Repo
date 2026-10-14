@@ -1,0 +1,11 @@
+{
+  "id": "frozen_gravel",
+  "name": "Frozen Gravel",
+  "icon": "6",
+  "description": "A solid, breakable frozen gravel block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 0.81
+}

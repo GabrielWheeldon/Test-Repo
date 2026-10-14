@@ -1,0 +1,9 @@
+{
+  "id": "birch_sap",
+  "name": "Birch Sap",
+  "icon": "O",
+  "description": "A useful birch sap resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "fossil_tooth",
+  "name": "Fossil Tooth",
+  "icon": "M",
+  "description": "A useful fossil tooth resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

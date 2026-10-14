@@ -1,0 +1,9 @@
+{
+  "id": "carved_totem",
+  "name": "Carved Totem",
+  "icon": "U",
+  "description": "A useful carved totem resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

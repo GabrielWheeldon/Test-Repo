@@ -1,0 +1,9 @@
+{
+  "id": "honeycomb",
+  "name": "Honeycomb",
+  "icon": "g",
+  "description": "A useful honeycomb resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

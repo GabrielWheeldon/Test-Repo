@@ -1,0 +1,9 @@
+{
+  "id": "spring_coil",
+  "name": "Spring Coil",
+  "icon": "E",
+  "description": "A useful spring coil resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

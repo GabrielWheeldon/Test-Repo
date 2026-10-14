@@ -1,0 +1,11 @@
+{
+  "id": "carved_sandstone",
+  "name": "Carved Sandstone",
+  "icon": "J",
+  "description": "A solid, breakable carved sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 0.99
+}

@@ -1,0 +1,11 @@
+{
+  "id": "red_sandstone",
+  "name": "Red Sandstone",
+  "icon": "E",
+  "description": "A solid, breakable red sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 1.53
+}

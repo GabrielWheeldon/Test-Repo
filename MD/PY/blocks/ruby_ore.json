@@ -1,0 +1,11 @@
+{
+  "id": "ruby_ore",
+  "name": "Ruby Ore",
+  "icon": "a",
+  "description": "A solid, breakable ruby ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 0.45
+}

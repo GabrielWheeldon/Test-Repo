@@ -1,0 +1,10 @@
+{
+  "name": "Oak Leaves",
+  "icon": "*",
+  "description": "A leafy piece of an oak canopy.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E6FFD3",
+  "background_color": "#477A35",
+  "break_time": 0.35
+}

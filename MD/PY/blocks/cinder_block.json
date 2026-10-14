@@ -1,0 +1,11 @@
+{
+  "id": "cinder_block",
+  "name": "Cinder Block",
+  "icon": "f",
+  "description": "A solid, breakable cinder block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FCE8FF",
+  "background_color": "#914D82",
+  "break_time": 0.99
+}

@@ -1,0 +1,10 @@
+{
+  "id": "troll",
+  "name": "Troll",
+  "icon": "T",
+  "description": "A lumbering creature with great strength and endurance.",
+  "health": 85,
+  "attack_power": 13,
+  "disposition": "hostile",
+  "foreground_color": "#6D9B58"
+}

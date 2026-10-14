@@ -1,0 +1,11 @@
+{
+  "id": "clay_soil",
+  "name": "Clay Soil",
+  "icon": "l",
+  "description": "A solid, breakable clay soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#ECFFD9",
+  "background_color": "#5C7F38",
+  "break_time": 0.63
+}

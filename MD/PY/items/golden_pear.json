@@ -1,0 +1,9 @@
+{
+  "id": "golden_pear",
+  "name": "Golden Pear",
+  "icon": "a",
+  "description": "A useful golden pear resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

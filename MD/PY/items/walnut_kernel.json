@@ -1,0 +1,9 @@
+{
+  "id": "walnut_kernel",
+  "name": "Walnut Kernel",
+  "icon": "U",
+  "description": "A useful walnut kernel resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

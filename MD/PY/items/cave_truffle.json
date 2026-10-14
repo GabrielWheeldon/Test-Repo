@@ -1,0 +1,9 @@
+{
+  "id": "cave_truffle",
+  "name": "Cave Truffle",
+  "icon": "0",
+  "description": "A useful cave truffle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

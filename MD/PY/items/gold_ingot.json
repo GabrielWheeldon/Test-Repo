@@ -1,0 +1,9 @@
+{
+  "id": "gold_ingot",
+  "name": "Gold Ingot",
+  "icon": "H",
+  "description": "A useful gold ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "white_sandstone",
+  "name": "White Sandstone",
+  "icon": "F",
+  "description": "A solid, breakable white sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 1.71
+}

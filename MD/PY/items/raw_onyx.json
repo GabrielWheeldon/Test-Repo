@@ -1,0 +1,9 @@
+{
+  "id": "raw_onyx",
+  "name": "Raw Onyx",
+  "icon": "C",
+  "description": "A useful raw onyx resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

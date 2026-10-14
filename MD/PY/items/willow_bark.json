@@ -1,0 +1,9 @@
+{
+  "id": "willow_bark",
+  "name": "Willow Bark",
+  "icon": "R",
+  "description": "A useful willow bark resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

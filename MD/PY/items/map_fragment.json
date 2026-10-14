@@ -1,0 +1,9 @@
+{
+  "id": "map_fragment",
+  "name": "Map Fragment",
+  "icon": "H",
+  "description": "A useful map fragment resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

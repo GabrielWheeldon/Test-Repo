@@ -1,0 +1,11 @@
+{
+  "id": "snow_brick",
+  "name": "Snow Brick",
+  "icon": "4",
+  "description": "A solid, breakable snow brick block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 0.45
+}

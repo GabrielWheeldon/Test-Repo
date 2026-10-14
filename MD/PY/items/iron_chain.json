@@ -1,0 +1,9 @@
+{
+  "id": "iron_chain",
+  "name": "Iron Chain",
+  "icon": "A",
+  "description": "A useful iron chain resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

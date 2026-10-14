@@ -1,0 +1,11 @@
+{
+  "id": "quartz_block",
+  "name": "Quartz Block",
+  "icon": "H",
+  "description": "A solid, breakable quartz block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.71
+}

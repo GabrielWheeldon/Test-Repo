@@ -1,0 +1,9 @@
+{
+  "id": "leather_strip",
+  "name": "Leather Strip",
+  "icon": "s",
+  "description": "A useful leather strip resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "raw_emerald",
+  "name": "Raw Emerald",
+  "icon": "v",
+  "description": "A useful raw emerald resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

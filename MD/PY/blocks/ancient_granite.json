@@ -1,0 +1,11 @@
+{
+  "id": "ancient_granite",
+  "name": "Ancient Granite",
+  "icon": "X",
+  "description": "A solid, breakable ancient granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F2E7D5",
+  "background_color": "#77634B",
+  "break_time": 0.63
+}

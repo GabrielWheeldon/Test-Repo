@@ -1,0 +1,11 @@
+{
+  "id": "polished_sandstone",
+  "name": "Polished Sandstone",
+  "icon": "K",
+  "description": "A solid, breakable polished sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 1.17
+}

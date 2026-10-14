@@ -1,0 +1,9 @@
+{
+  "id": "copper_gear",
+  "name": "Copper Gear",
+  "icon": "B",
+  "description": "A useful copper gear resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

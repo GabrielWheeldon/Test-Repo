@@ -1,0 +1,11 @@
+{
+  "id": "pumice",
+  "name": "Pumice",
+  "icon": "9",
+  "description": "A solid, breakable pumice block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 1.35
+}

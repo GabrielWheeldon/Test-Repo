@@ -1,0 +1,9 @@
+{
+  "id": "mushroom_stew",
+  "name": "Mushroom Stew",
+  "icon": "d",
+  "description": "A useful mushroom stew resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "zinc_ingot",
+  "name": "Zinc Ingot",
+  "icon": "L",
+  "description": "A useful zinc ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

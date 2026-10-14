@@ -1,0 +1,9 @@
+{
+  "id": "lead_ingot",
+  "name": "Lead Ingot",
+  "icon": "M",
+  "description": "A useful lead ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

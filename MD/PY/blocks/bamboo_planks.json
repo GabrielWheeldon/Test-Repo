@@ -1,0 +1,11 @@
+{
+  "id": "bamboo_planks",
+  "name": "Bamboo Planks",
+  "icon": "D",
+  "description": "A solid, breakable bamboo planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F2E7D5",
+  "background_color": "#77634B",
+  "break_time": 1.35
+}

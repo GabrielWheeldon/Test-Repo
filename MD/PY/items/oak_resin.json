@@ -1,0 +1,9 @@
+{
+  "id": "oak_resin",
+  "name": "Oak Resin",
+  "icon": "N",
+  "description": "A useful oak resin resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

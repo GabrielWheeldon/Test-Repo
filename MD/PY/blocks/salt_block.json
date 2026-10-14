@@ -1,0 +1,11 @@
+{
+  "id": "salt_block",
+  "name": "Salt Block",
+  "icon": "x",
+  "description": "A solid, breakable salt block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.35
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ash_seed",
+  "name": "Ash Seed",
+  "icon": "S",
+  "description": "A useful ash seed resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

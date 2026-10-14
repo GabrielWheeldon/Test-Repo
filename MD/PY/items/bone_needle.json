@@ -1,0 +1,9 @@
+{
+  "id": "bone_needle",
+  "name": "Bone Needle",
+  "icon": "v",
+  "description": "A useful bone needle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

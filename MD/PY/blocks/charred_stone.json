@@ -1,0 +1,11 @@
+{
+  "id": "charred_stone",
+  "name": "Charred Stone",
+  "icon": "h",
+  "description": "A solid, breakable charred stone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F2E7D5",
+  "background_color": "#77634B",
+  "break_time": 1.35
+}

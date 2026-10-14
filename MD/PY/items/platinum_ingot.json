@@ -1,0 +1,9 @@
+{
+  "id": "platinum_ingot",
+  "name": "Platinum Ingot",
+  "icon": "I",
+  "description": "A useful platinum ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

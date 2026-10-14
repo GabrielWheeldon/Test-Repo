@@ -1,0 +1,9 @@
+{
+  "id": "raw_opal",
+  "name": "Raw Opal",
+  "icon": "y",
+  "description": "A useful raw opal resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

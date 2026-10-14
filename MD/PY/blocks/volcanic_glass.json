@@ -1,0 +1,11 @@
+{
+  "id": "volcanic_glass",
+  "name": "Volcanic Glass",
+  "icon": "e",
+  "description": "A solid, breakable volcanic glass block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 0.81
+}

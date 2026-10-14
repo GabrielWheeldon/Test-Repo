@@ -1,0 +1,9 @@
+{
+  "id": "brass_buckle",
+  "name": "Brass Buckle",
+  "icon": "z",
+  "description": "A useful brass buckle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

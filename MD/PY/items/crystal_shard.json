@@ -1,0 +1,9 @@
+{
+  "id": "crystal_shard",
+  "name": "Crystal Shard",
+  "icon": "o",
+  "description": "A useful crystal shard resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "rooted_soil",
+  "name": "Rooted Soil",
+  "icon": "q",
+  "description": "A solid, breakable rooted soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 1.53
+}

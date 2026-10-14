@@ -1,0 +1,11 @@
+{
+  "id": "pine_planks",
+  "name": "Pine Planks",
+  "icon": "w",
+  "description": "A solid, breakable pine planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 1.53
+}

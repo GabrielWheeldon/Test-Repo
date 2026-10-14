@@ -1,0 +1,9 @@
+{
+  "id": "sealed_letter",
+  "name": "Sealed Letter",
+  "icon": "I",
+  "description": "A useful sealed letter resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

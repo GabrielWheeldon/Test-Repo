@@ -1,0 +1,9 @@
+{
+  "id": "pine_pitch",
+  "name": "Pine Pitch",
+  "icon": "P",
+  "description": "A useful pine pitch resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

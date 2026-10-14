@@ -1,0 +1,9 @@
+{
+  "id": "redcap_mushroom",
+  "name": "Redcap Mushroom",
+  "icon": "Z",
+  "description": "A useful redcap mushroom resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

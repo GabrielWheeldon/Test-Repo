@@ -1,0 +1,9 @@
+{
+  "id": "sunleaf",
+  "name": "Sunleaf",
+  "icon": "2",
+  "description": "A useful sunleaf resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

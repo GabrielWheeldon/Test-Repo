@@ -1,0 +1,9 @@
+{
+  "id": "wild_carrot",
+  "name": "Wild Carrot",
+  "icon": "7",
+  "description": "A useful wild carrot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

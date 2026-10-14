@@ -1,0 +1,9 @@
+{
+  "id": "raw_citrine",
+  "name": "Raw Citrine",
+  "icon": "B",
+  "description": "A useful raw citrine resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "platinum_ore",
+  "name": "Platinum Ore",
+  "icon": "p",
+  "description": "A solid, breakable platinum ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.71
+}

@@ -1,0 +1,11 @@
+{
+  "id": "lapis_block",
+  "name": "Lapis Block",
+  "icon": "E",
+  "description": "A solid, breakable lapis block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 1.17
+}

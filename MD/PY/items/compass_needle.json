@@ -1,0 +1,9 @@
+{
+  "id": "compass_needle",
+  "name": "Compass Needle",
+  "icon": "G",
+  "description": "A useful compass needle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

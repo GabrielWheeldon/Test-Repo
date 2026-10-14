@@ -1,0 +1,10 @@
+{
+  "id": "wraith",
+  "name": "Wraith",
+  "icon": "W",
+  "description": "A hostile spirit that drifts through forgotten places.",
+  "health": 26,
+  "attack_power": 8,
+  "disposition": "hostile",
+  "foreground_color": "#8D9ED6"
+}

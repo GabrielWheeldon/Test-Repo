@@ -1,0 +1,11 @@
+{
+  "id": "pink_granite",
+  "name": "Pink Granite",
+  "icon": "Q",
+  "description": "A solid, breakable pink granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 0.81
+}

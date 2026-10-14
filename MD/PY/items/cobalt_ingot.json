@@ -1,0 +1,9 @@
+{
+  "id": "cobalt_ingot",
+  "name": "Cobalt Ingot",
+  "icon": "J",
+  "description": "A useful cobalt ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

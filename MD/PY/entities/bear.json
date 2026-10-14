@@ -1,0 +1,10 @@
+{
+  "id": "bear",
+  "name": "Bear",
+  "icon": "B",
+  "description": "A powerful forest predator with a heavy strike.",
+  "health": 70,
+  "attack_power": 12,
+  "disposition": "hostile",
+  "foreground_color": "#8A5938"
+}

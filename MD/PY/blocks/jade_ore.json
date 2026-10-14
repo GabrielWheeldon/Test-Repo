@@ -1,0 +1,11 @@
+{
+  "id": "jade_ore",
+  "name": "Jade Ore",
+  "icon": "g",
+  "description": "A solid, breakable jade ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 1.53
+}

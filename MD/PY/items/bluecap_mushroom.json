@@ -1,0 +1,9 @@
+{
+  "id": "bluecap_mushroom",
+  "name": "Bluecap Mushroom",
+  "icon": "Y",
+  "description": "A useful bluecap mushroom resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

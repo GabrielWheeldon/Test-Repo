@@ -1,0 +1,9 @@
+{
+  "id": "ancient_coin",
+  "name": "Ancient Coin",
+  "icon": "J",
+  "description": "A useful ancient coin resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

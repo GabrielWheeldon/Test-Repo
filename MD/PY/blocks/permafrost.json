@@ -1,0 +1,11 @@
+{
+  "id": "permafrost",
+  "name": "Permafrost",
+  "icon": "Y",
+  "description": "A solid, breakable permafrost block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 0.81
+}

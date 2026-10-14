@@ -1,0 +1,11 @@
+{
+  "id": "iron_ore",
+  "name": "Iron Ore",
+  "icon": "m",
+  "description": "A solid, breakable iron ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 1.17
+}

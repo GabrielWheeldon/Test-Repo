@@ -1,0 +1,11 @@
+{
+  "id": "moss_sandstone",
+  "name": "Moss Sandstone",
+  "icon": "I",
+  "description": "A solid, breakable moss sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFE9E2",
+  "background_color": "#A34F3D",
+  "break_time": 0.81
+}

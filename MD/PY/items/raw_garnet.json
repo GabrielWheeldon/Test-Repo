@@ -1,0 +1,9 @@
+{
+  "id": "raw_garnet",
+  "name": "Raw Garnet",
+  "icon": "A",
+  "description": "A useful raw garnet resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

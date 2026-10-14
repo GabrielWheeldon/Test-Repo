@@ -1,0 +1,9 @@
+{
+  "id": "cedar_oil",
+  "name": "Cedar Oil",
+  "icon": "Q",
+  "description": "A useful cedar oil resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

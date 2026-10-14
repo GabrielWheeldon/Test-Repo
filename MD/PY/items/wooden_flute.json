@@ -1,0 +1,9 @@
+{
+  "id": "wooden_flute",
+  "name": "Wooden Flute",
+  "icon": "V",
+  "description": "A useful wooden flute resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

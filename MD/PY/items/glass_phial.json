@@ -1,0 +1,9 @@
+{
+  "id": "glass_phial",
+  "name": "Glass Phial",
+  "icon": "0",
+  "description": "A useful glass phial resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

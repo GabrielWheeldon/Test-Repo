@@ -1,0 +1,9 @@
+{
+  "id": "pearl_pendant",
+  "name": "Pearl Pendant",
+  "icon": "O",
+  "description": "A useful pearl pendant resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

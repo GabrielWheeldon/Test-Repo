@@ -1,0 +1,11 @@
+{
+  "id": "pearlstone",
+  "name": "Pearlstone",
+  "icon": "u",
+  "description": "A solid, breakable pearlstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 0.81
+}

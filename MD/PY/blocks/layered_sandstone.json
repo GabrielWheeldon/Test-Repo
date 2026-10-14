@@ -1,0 +1,11 @@
+{
+  "id": "layered_sandstone",
+  "name": "Layered Sandstone",
+  "icon": "M",
+  "description": "A solid, breakable layered sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 1.53
+}

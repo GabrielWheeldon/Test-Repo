@@ -1,0 +1,8 @@
+{
+  "id": "oak_planks",
+  "name": "Oak Planks",
+  "icon": "u",
+  "description": "A solid, breakable oak planks block.",
+  "placeable": true,
+  "kind": "block"
+}

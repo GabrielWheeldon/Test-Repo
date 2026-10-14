@@ -1,0 +1,9 @@
+{
+  "id": "lantern_wick",
+  "name": "Lantern Wick",
+  "icon": "X",
+  "description": "A useful lantern wick resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

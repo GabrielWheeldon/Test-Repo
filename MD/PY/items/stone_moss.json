@@ -1,0 +1,9 @@
+{
+  "id": "stone_moss",
+  "name": "Stone Moss",
+  "icon": "3",
+  "description": "A useful stone moss resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

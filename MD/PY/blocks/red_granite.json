@@ -1,0 +1,11 @@
+{
+  "id": "red_granite",
+  "name": "Red Granite",
+  "icon": "O",
+  "description": "A solid, breakable red granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 0.45
+}

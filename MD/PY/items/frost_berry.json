@@ -1,0 +1,9 @@
+{
+  "id": "frost_berry",
+  "name": "Frost Berry",
+  "icon": "6",
+  "description": "A useful frost berry resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

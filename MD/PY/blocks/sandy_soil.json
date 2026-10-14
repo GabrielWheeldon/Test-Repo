@@ -1,0 +1,11 @@
+{
+  "id": "sandy_soil",
+  "name": "Sandy Soil",
+  "icon": "p",
+  "description": "A solid, breakable sandy soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FCE8FF",
+  "background_color": "#914D82",
+  "break_time": 1.35
+}

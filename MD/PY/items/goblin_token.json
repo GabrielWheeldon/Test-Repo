@@ -1,0 +1,9 @@
+{
+  "id": "goblin_token",
+  "name": "Goblin Token",
+  "icon": "K",
+  "description": "A useful goblin token resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

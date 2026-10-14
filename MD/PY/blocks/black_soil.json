@@ -1,0 +1,11 @@
+{
+  "id": "black_soil",
+  "name": "Black Soil",
+  "icon": "n",
+  "description": "A solid, breakable black soil block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 0.99
+}

@@ -1,0 +1,9 @@
+{
+  "id": "iron_rivet",
+  "name": "Iron Rivet",
+  "icon": "k",
+  "description": "A useful iron rivet resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

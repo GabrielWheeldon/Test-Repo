@@ -1,0 +1,11 @@
+{
+  "name": "Oak Sapling",
+  "icon": "t",
+  "description": "A young oak tree ready to grow.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#B2D76E",
+  "background_color": "#416B32",
+  "break_time": 0.2,
+  "grows_into_tree": true
+}

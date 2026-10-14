@@ -1,0 +1,1 @@
+{"id":"slime","name":"Slime","icon":"o","description":"A hostile blob that bounces toward nearby life.","health":28,"attack_power":4,"disposition":"hostile","foreground_color":"#59C985"}

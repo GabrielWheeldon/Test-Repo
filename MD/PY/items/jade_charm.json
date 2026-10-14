@@ -1,0 +1,9 @@
+{
+  "id": "jade_charm",
+  "name": "Jade Charm",
+  "icon": "P",
+  "description": "A useful jade charm resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

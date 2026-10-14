@@ -1,0 +1,9 @@
+{
+  "id": "dried_kelp",
+  "name": "Dried Kelp",
+  "icon": "e",
+  "description": "A useful dried kelp resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

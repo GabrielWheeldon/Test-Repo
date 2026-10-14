@@ -1,0 +1,9 @@
+{
+  "id": "empty_vial",
+  "name": "Empty Vial",
+  "icon": "Z",
+  "description": "A useful empty vial resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

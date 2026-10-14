@@ -1,0 +1,9 @@
+{
+  "id": "silver_thread",
+  "name": "Silver Thread",
+  "icon": "l",
+  "description": "A useful silver thread resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

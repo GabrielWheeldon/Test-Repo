@@ -1,0 +1,11 @@
+{
+  "id": "blue_coral_block",
+  "name": "Blue Coral Block",
+  "icon": "A",
+  "description": "A solid, breakable blue coral block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 0.45
+}

@@ -1,0 +1,9 @@
+{
+  "id": "moon_fern",
+  "name": "Moon Fern",
+  "icon": "1",
+  "description": "A useful moon fern resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "clay_flask",
+  "name": "Clay Flask",
+  "icon": "1",
+  "description": "A useful clay flask resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

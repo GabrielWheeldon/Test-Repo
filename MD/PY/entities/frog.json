@@ -1,0 +1,10 @@
+{
+  "id": "frog",
+  "name": "Frog",
+  "icon": "f",
+  "description": "A little pond-dweller that hops away from threats.",
+  "health": 16,
+  "attack_power": 0,
+  "disposition": "passive",
+  "foreground_color": "#62B85A"
+}

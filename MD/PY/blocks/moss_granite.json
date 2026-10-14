@@ -1,0 +1,11 @@
+{
+  "id": "moss_granite",
+  "name": "Moss Granite",
+  "icon": "T",
+  "description": "A solid, breakable moss granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.35
+}

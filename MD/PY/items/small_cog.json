@@ -1,0 +1,9 @@
+{
+  "id": "small_cog",
+  "name": "Small Cog",
+  "icon": "C",
+  "description": "A useful small cog resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

@@ -1,0 +1,9 @@
+{
+  "id": "glowcap_mushroom",
+  "name": "Glowcap Mushroom",
+  "icon": "X",
+  "description": "A useful glowcap mushroom resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

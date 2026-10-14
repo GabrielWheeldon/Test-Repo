@@ -1,0 +1,9 @@
+{
+  "id": "resin_bundle",
+  "name": "Resin Bundle",
+  "icon": "r",
+  "description": "A useful resin bundle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

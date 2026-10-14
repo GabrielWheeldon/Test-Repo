@@ -1,0 +1,9 @@
+{
+  "id": "copper_wire",
+  "name": "Copper Wire",
+  "icon": "i",
+  "description": "A useful copper wire resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

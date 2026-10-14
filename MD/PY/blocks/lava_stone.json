@@ -1,0 +1,11 @@
+{
+  "id": "lava_stone",
+  "name": "Lava Stone",
+  "icon": "g",
+  "description": "A solid, breakable lava stone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 1.17
+}

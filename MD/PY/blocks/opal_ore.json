@@ -1,0 +1,11 @@
+{
+  "id": "opal_ore",
+  "name": "Opal Ore",
+  "icon": "f",
+  "description": "A solid, breakable opal ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF6D8",
+  "background_color": "#A88335",
+  "break_time": 1.35
+}

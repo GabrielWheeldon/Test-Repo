@@ -1,0 +1,9 @@
+{
+  "id": "bamboo_shoot",
+  "name": "Bamboo Shoot",
+  "icon": "W",
+  "description": "A useful bamboo shoot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

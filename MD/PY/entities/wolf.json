@@ -1,0 +1,10 @@
+{
+  "id": "wolf",
+  "name": "Wolf",
+  "icon": "w",
+  "description": "A fierce pack hunter that chases nearby intruders.",
+  "health": 34,
+  "attack_power": 7,
+  "disposition": "hostile",
+  "foreground_color": "#9AA3AD"
+}

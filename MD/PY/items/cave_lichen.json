@@ -1,0 +1,9 @@
+{
+  "id": "cave_lichen",
+  "name": "Cave Lichen",
+  "icon": "4",
+  "description": "A useful cave lichen resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

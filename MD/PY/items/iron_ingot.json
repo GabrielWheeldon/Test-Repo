@@ -1,0 +1,9 @@
+{
+  "id": "iron_ingot",
+  "name": "Iron Ingot",
+  "icon": "F",
+  "description": "A useful iron ingot resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

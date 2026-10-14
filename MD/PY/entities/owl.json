@@ -1,0 +1,10 @@
+{
+  "id": "owl",
+  "name": "Owl",
+  "icon": "O",
+  "description": "A quiet night bird that avoids nearby danger.",
+  "health": 20,
+  "attack_power": 0,
+  "disposition": "passive",
+  "foreground_color": "#D5B775"
+}

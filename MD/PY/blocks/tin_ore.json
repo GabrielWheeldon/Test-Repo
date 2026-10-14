@@ -1,0 +1,11 @@
+{
+  "id": "tin_ore",
+  "name": "Tin Ore",
+  "icon": "l",
+  "description": "A solid, breakable tin ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 0.99
+}

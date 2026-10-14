@@ -1,0 +1,9 @@
+{
+  "id": "large_cog",
+  "name": "Large Cog",
+  "icon": "D",
+  "description": "A useful large cog resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

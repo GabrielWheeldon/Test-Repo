@@ -1,0 +1,9 @@
+{
+  "id": "maple_syrup",
+  "name": "Maple Syrup",
+  "icon": "T",
+  "description": "A useful maple syrup resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

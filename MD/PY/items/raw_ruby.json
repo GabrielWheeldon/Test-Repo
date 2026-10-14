@@ -1,0 +1,9 @@
+{
+  "id": "raw_ruby",
+  "name": "Raw Ruby",
+  "icon": "t",
+  "description": "A useful raw ruby resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#ECFFD9"
+}

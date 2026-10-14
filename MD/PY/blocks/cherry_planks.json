@@ -1,0 +1,11 @@
+{
+  "id": "cherry_planks",
+  "name": "Cherry Planks",
+  "icon": "C",
+  "description": "A solid, breakable cherry planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F0F0F0",
+  "background_color": "#555B66",
+  "break_time": 1.17
+}

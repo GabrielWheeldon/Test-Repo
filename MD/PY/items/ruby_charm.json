@@ -1,0 +1,9 @@
+{
+  "id": "ruby_charm",
+  "name": "Ruby Charm",
+  "icon": "Q",
+  "description": "A useful ruby charm resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F0F0F0"
+}

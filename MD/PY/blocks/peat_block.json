@@ -1,0 +1,11 @@
+{
+  "id": "peat_block",
+  "name": "Peat Block",
+  "icon": "j",
+  "description": "A solid, breakable peat block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 1.71
+}

@@ -1,0 +1,11 @@
+{
+  "id": "willow_planks",
+  "name": "Willow Planks",
+  "icon": "y",
+  "description": "A solid, breakable willow planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFE9E2",
+  "background_color": "#A34F3D",
+  "break_time": 0.45
+}

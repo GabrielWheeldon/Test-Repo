@@ -1,0 +1,9 @@
+{
+  "id": "cave_apple",
+  "name": "Cave Apple",
+  "icon": "9",
+  "description": "A useful cave apple resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

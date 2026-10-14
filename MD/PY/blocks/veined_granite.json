@@ -1,0 +1,11 @@
+{
+  "id": "veined_granite",
+  "name": "Veined Granite",
+  "icon": "U",
+  "description": "A solid, breakable veined granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 1.53
+}

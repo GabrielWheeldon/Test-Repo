@@ -1,0 +1,11 @@
+{
+  "id": "yellow_sandstone",
+  "name": "Yellow Sandstone",
+  "icon": "G",
+  "description": "A solid, breakable yellow sandstone block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 0.45
+}

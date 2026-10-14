@@ -1,0 +1,10 @@
+{
+  "id": "mushroom_golem",
+  "name": "Mushroom Golem",
+  "icon": "G",
+  "description": "A hostile guardian formed from stone and glowing fungi.",
+  "health": 58,
+  "attack_power": 9,
+  "disposition": "hostile",
+  "foreground_color": "#C16B91"
+}

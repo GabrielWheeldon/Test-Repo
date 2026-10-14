@@ -1,0 +1,9 @@
+{
+  "id": "amber_pendant",
+  "name": "Amber Pendant",
+  "icon": "N",
+  "description": "A useful amber pendant resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FCE8FF"
+}

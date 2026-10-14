@@ -1,0 +1,10 @@
+{
+  "name": "Oak Log",
+  "icon": "I",
+  "description": "A piece of oak timber.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F4D6A0",
+  "background_color": "#70451F",
+  "break_time": 1.1
+}

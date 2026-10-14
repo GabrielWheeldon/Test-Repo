@@ -1,0 +1,9 @@
+{
+  "id": "raw_amethyst",
+  "name": "Raw Amethyst",
+  "icon": "w",
+  "description": "A useful raw amethyst resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

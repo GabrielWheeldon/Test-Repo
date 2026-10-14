@@ -1,0 +1,10 @@
+{
+  "id": "hedgehog",
+  "name": "Hedgehog",
+  "icon": "h",
+  "description": "A small shy animal that curls away from danger.",
+  "health": 18,
+  "attack_power": 0,
+  "disposition": "passive",
+  "foreground_color": "#C49A72"
+}

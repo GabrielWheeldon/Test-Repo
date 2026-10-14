@@ -1,0 +1,11 @@
+{
+  "id": "tidepool_rock",
+  "name": "Tidepool Rock",
+  "icon": "y",
+  "description": "A solid, breakable tidepool rock block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 1.53
+}

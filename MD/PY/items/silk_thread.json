@@ -1,0 +1,9 @@
+{
+  "id": "silk_thread",
+  "name": "Silk Thread",
+  "icon": "u",
+  "description": "A useful silk thread resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFE9E2"
+}

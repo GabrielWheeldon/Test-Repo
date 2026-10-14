@@ -1,0 +1,9 @@
+{
+  "id": "clockwork_key",
+  "name": "Clockwork Key",
+  "icon": "F",
+  "description": "A useful clockwork key resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F3E8FF"
+}

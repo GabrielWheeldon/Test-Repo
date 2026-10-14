@@ -1,0 +1,9 @@
+{
+  "id": "travel_ration",
+  "name": "Travel Ration",
+  "icon": "2",
+  "description": "A useful travel ration resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E5F2FF"
+}

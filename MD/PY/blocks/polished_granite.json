@@ -1,0 +1,11 @@
+{
+  "id": "polished_granite",
+  "name": "Polished Granite",
+  "icon": "V",
+  "description": "A solid, breakable polished granite block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FCE8FF",
+  "background_color": "#914D82",
+  "break_time": 1.71
+}

@@ -1,0 +1,9 @@
+{
+  "id": "obsidian_flake",
+  "name": "Obsidian Flake",
+  "icon": "q",
+  "description": "A useful obsidian flake resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#E7FFFF"
+}

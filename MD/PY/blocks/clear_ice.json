@@ -1,0 +1,11 @@
+{
+  "id": "clear_ice",
+  "name": "Clear Ice",
+  "icon": "0",
+  "description": "A solid, breakable clear ice block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E5F2FF",
+  "background_color": "#426B91",
+  "break_time": 1.17
+}

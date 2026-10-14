@@ -1,0 +1,11 @@
+{
+  "id": "silver_ore",
+  "name": "Silver Ore",
+  "icon": "n",
+  "description": "A solid, breakable silver ore block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#ECFFD9",
+  "background_color": "#5C7F38",
+  "break_time": 1.35
+}

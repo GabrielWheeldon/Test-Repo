@@ -1,0 +1,9 @@
+{
+  "id": "glass_lens",
+  "name": "Glass Lens",
+  "icon": "n",
+  "description": "A useful glass lens resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

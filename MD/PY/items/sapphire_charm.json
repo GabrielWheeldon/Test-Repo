@@ -1,0 +1,9 @@
+{
+  "id": "sapphire_charm",
+  "name": "Sapphire Charm",
+  "icon": "R",
+  "description": "A useful sapphire charm resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF6D8"
+}

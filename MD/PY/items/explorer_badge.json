@@ -1,0 +1,9 @@
+{
+  "id": "explorer_badge",
+  "name": "Explorer Badge",
+  "icon": "3",
+  "description": "A useful explorer badge resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

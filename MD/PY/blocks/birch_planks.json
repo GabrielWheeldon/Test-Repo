@@ -1,0 +1,11 @@
+{
+  "id": "birch_planks",
+  "name": "Birch Planks",
+  "icon": "v",
+  "description": "A solid, breakable birch planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#F3E8FF",
+  "background_color": "#694A8A",
+  "break_time": 1.35
+}

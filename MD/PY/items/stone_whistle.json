@@ -1,0 +1,9 @@
+{
+  "id": "stone_whistle",
+  "name": "Stone Whistle",
+  "icon": "W",
+  "description": "A useful stone whistle resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#FFF0D5"
+}

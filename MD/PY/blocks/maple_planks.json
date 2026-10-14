@@ -1,0 +1,11 @@
+{
+  "id": "maple_planks",
+  "name": "Maple Planks",
+  "icon": "A",
+  "description": "A solid, breakable maple planks block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E7FFFF",
+  "background_color": "#398A8A",
+  "break_time": 0.81
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ember_root",
+  "name": "Ember Root",
+  "icon": "5",
+  "description": "A useful ember root resource for crafting and exploration.",
+  "placeable": false,
+  "kind": "item",
+  "foreground_color": "#F2E7D5"
+}

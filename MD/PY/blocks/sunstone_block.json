@@ -1,0 +1,11 @@
+{
+  "id": "sunstone_block",
+  "name": "Sunstone Block",
+  "icon": "J",
+  "description": "A solid, breakable sunstone block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FCE8FF",
+  "background_color": "#914D82",
+  "break_time": 0.63
+}

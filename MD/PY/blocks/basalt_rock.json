@@ -1,0 +1,11 @@
+{
+  "id": "basalt_rock",
+  "name": "Basalt Rock",
+  "icon": "8",
+  "description": "A solid, breakable basalt rock block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#FFF0D5",
+  "background_color": "#8B5A2B",
+  "break_time": 1.17
+}
