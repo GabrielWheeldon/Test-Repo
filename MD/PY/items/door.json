@@ -1,0 +1,10 @@
+{
+  "id": "door",
+  "name": "Wooden Door",
+  "icon": "D",
+  "description": "A wooden door that can be opened and closed.",
+  "placeable": true,
+  "kind": "door",
+  "foreground_color": "#E8C27A",
+  "stackable": true
+}

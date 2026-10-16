@@ -1,0 +1,11 @@
+{
+  "name": "Wooden Door",
+  "icon": "D",
+  "description": "A wooden door that can be opened and closed.",
+  "kind": "door",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#E8C27A",
+  "background_color": "#70451F",
+  "break_time": 0.8
+}

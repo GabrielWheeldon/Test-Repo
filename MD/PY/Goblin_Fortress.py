@@ -1,6 +1,7 @@
 import json
 from collections import deque
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 import random
 import re
@@ -21,6 +22,36 @@ ITEM_FOREGROUND_PALETTE = (
     "#176B55", "#176C83", "#3459A6", "#63469A",
     "#923F78", "#8B3948", "#585858", "#316E9A",
 )
+BODY_PARTS = (
+    ("head", "Head"),
+    ("chest", "Chest"),
+    ("stomach", "Stomach"),
+    ("left_arm", "Left arm"),
+    ("right_arm", "Right arm"),
+    ("left_leg", "Left leg"),
+    ("right_leg", "Right leg"),
+    ("heart", "Heart"),
+    ("lungs", "Lungs"),
+    ("liver", "Liver"),
+)
+PART_SPOIL_TIME = 600.0
+INFECTION_DAMAGE_INTERVAL = 5.0
+COLD_BLOCK_IDS = {
+    "blue_ice", "clear_ice", "frosted_ice", "glacier_stone",
+    "packed_ice", "permafrost", "snow_brick",
+}
+
+
+@lru_cache(maxsize=16384)
+def _terrain_corner_value(corner_x, corner_y):
+    seed = corner_x * 73856093 ^ corner_y * 19349663
+    return random.Random(seed).random()
+
+
+@lru_cache(maxsize=32768)
+def _tree_spawn_roll(x, y):
+    seed = x * 73856093 ^ y * 19349663 ^ 0x5A17
+    return random.Random(seed).random()
 
 
 def is_hex_color(value):
@@ -39,6 +70,7 @@ def darken_color(color, depth_distance):
     return scale_color(color, brightness)
 
 
+@lru_cache(maxsize=8192)
 def color_at_depth(color, depth, player_depth):
     depth_offset = depth - player_depth
     if depth_offset == 0:
@@ -50,6 +82,7 @@ def color_at_depth(color, depth, player_depth):
     return scale_color(color, brightness)
 
 
+@lru_cache(maxsize=512)
 def scale_color(color, brightness):
     if not is_hex_color(color):
         raise ValueError(f"Invalid hex color: {color!r}")
@@ -98,6 +131,8 @@ class block(gameObject):
 
     @classmethod
     def from_preset(cls, preset, pos):
+        if preset.get("kind") == "door":
+            return door.from_preset(preset, pos)
         result = cls(
             preset["name"],
             preset["icon"],
@@ -115,6 +150,34 @@ class block(gameObject):
         if result.grows_into_tree:
             result.planted_at = time.monotonic()
         return result
+
+
+class door(block):
+    def __init__(self, name, icon, description, pos, foreground_color, background_color, break_time):
+        super().__init__(
+            name, icon, description, pos,
+            foreground_color=foreground_color,
+            background_color=background_color,
+            break_time=break_time,
+        )
+        self.is_open = False
+
+    @classmethod
+    def from_preset(cls, preset, pos):
+        result = cls(
+            preset["name"],
+            preset["icon"],
+            preset["description"],
+            pos,
+            preset.get("foreground_color", DEFAULT_FOREGROUND_COLOR),
+            preset.get("background_color", DEFAULT_BLOCK_BACKGROUND),
+            preset.get("break_time", 1.0),
+        )
+        result.preset_id = preset.get("id")
+        return result
+
+    def toggle(self):
+        self.is_open = not self.is_open
 
 
 class craftedItem(gameObject):
@@ -168,6 +231,38 @@ class usableItem(craftedItem):
             item_id, name, icon, description, pos, False, foreground_color, True
         )
         self.heal_amount = heal_amount
+
+
+class bodyPartItem(gameObject):
+    def __init__(
+        self, part_id, part_name, health, spoil_remaining=PART_SPOIL_TIME,
+        last_updated=None, spoiled=False, infected=False,
+    ):
+        super().__init__(
+            f"{part_name}{' (spoiled)' if spoiled else ''}",
+            "!", f"A detached {part_name.lower()}.", (0, 0, 0),
+            "#B84B4B" if spoiled else "#C98E72",
+        )
+        self.part_id = part_id
+        self.part_name = part_name
+        self.health = health
+        self.spoil_remaining = spoil_remaining
+        self.last_updated = time.time() if last_updated is None else last_updated
+        self.spoiled = spoiled
+        self.infected = infected
+        self.placeable = False
+
+    def update_spoilage(self, cold, current_time=None):
+        now = time.time() if current_time is None else current_time
+        if not cold and not self.spoiled:
+            self.spoil_remaining = max(
+                0.0, self.spoil_remaining - max(0.0, now - self.last_updated)
+            )
+            if self.spoil_remaining <= 0:
+                self.spoiled = True
+                self.name = f"{self.part_name} (spoiled)"
+                self.foreground_color = "#B84B4B"
+        self.last_updated = now
 
 
 class storageObject(gameObject):
@@ -286,6 +381,7 @@ def load_item_presets():
         if preset.get("kind", "item") not in (
             "item", "block", "tool", "usable", "storage",
             "crafting_station", "furnace", "campfire", "resting_place",
+            "door",
         ):
             raise ValueError(f"{preset_path} has an unsupported item kind.")
         presets[preset_id] = preset
@@ -418,13 +514,14 @@ def remove_item_from_collection(collection, item, quantity=1):
 def use_item(item, player_character):
     if not isinstance(item, usableItem):
         return False, "That item cannot be used directly."
-    missing_health = player_character.max_health - player_character.health
-    if missing_health <= 0:
-        return False, "Your health is already full."
-    restored = min(item.heal_amount, missing_health)
-    player_character.health += restored
+    restored, restored_limbs = player_character.heal_damage(item.heal_amount)
+    if restored <= 0 and restored_limbs <= 0:
+        return False, "Your health and limbs are already fully healed."
     player_character.remove_from_inventory(item, 1)
-    return True, f"Used {item.name}; restored {restored} health."
+    return True, (
+        f"Used {item.name}; restored {restored} body health and "
+        f"{restored_limbs} limb health."
+    )
 
 
 def missing_recipe_ingredients(inventory, recipe):
@@ -496,6 +593,12 @@ class entity(gameObject):
         self.attack_power = attack_power
         self.disposition = disposition
         self.last_attack_time = 0.0
+        self.limb_health = {
+            part_id: health for part_id, _label in BODY_PARTS
+        }
+        self.attached_parts = {part_id for part_id, _label in BODY_PARTS}
+        self.infected = False
+        self.infection_elapsed = 0.0
 
     @classmethod
     def from_preset(cls, preset, pos=(0, 0, 0)):
@@ -519,6 +622,136 @@ class entity(gameObject):
     @hp.setter
     def hp(self, value):
         self.health = max(0, min(self.max_health, value))
+
+    def take_damage(self, amount, part_id=None):
+        if amount <= 0:
+            return None, 0
+        if part_id is None:
+            available_parts = [
+                part_id for part_id, _label in BODY_PARTS
+                if part_id in self.attached_parts
+            ]
+            if not available_parts:
+                return None, 0
+            part_id = random.choice(available_parts)
+        if part_id not in self.limb_health:
+            raise ValueError(f"Unknown body part: {part_id}")
+        if part_id not in self.attached_parts:
+            return None, 0
+        damage = min(amount, self.health)
+        self.limb_health[part_id] = max(
+            0, self.limb_health[part_id] - amount
+        )
+        self.hp -= damage
+        return part_id, damage
+
+    def heal_damage(self, amount):
+        if amount <= 0:
+            return 0, 0
+        restored_health = min(amount, self.max_health - self.health)
+        self.hp += restored_health
+        restored_limb_health = 0
+        for part_id, _label in BODY_PARTS:
+            if part_id not in self.attached_parts:
+                continue
+            current = self.limb_health[part_id]
+            restored = min(amount, self.max_health - current)
+            self.limb_health[part_id] += restored
+            restored_limb_health += restored
+        return restored_health, restored_limb_health
+
+    def restore_limb_health(self, limb_health):
+        if not isinstance(limb_health, dict):
+            raise ValueError("Saved limb health must be an object.")
+        for part_id, value in limb_health.items():
+            if (
+                part_id not in self.limb_health
+                or not isinstance(value, int)
+                or not 0 <= value <= self.max_health
+            ):
+                raise ValueError(f"Invalid saved health for body part '{part_id}'.")
+            self.limb_health[part_id] = value
+
+    def restore_body_state(
+        self, attached_parts=None, infected=False, infection_elapsed=0.0
+    ):
+        if attached_parts is not None:
+            if (
+                not isinstance(attached_parts, list)
+                or any(
+                    not isinstance(part_id, str)
+                    or part_id not in self.limb_health
+                    for part_id in attached_parts
+                )
+                or len(set(attached_parts)) != len(attached_parts)
+            ):
+                raise ValueError("Saved attached body parts are invalid.")
+            self.attached_parts = set(attached_parts)
+            for part_id in self.limb_health:
+                if part_id not in self.attached_parts:
+                    self.limb_health[part_id] = 0
+        if not isinstance(infected, bool):
+            raise ValueError("Saved infection status must be a boolean.")
+        if (
+            isinstance(infection_elapsed, bool)
+            or not isinstance(infection_elapsed, (int, float))
+            or not 0 <= infection_elapsed < INFECTION_DAMAGE_INTERVAL
+        ):
+            raise ValueError("Saved infection time is invalid.")
+        self.infected = infected
+        self.infection_elapsed = float(infection_elapsed)
+
+    def amputate(self, part_id):
+        if part_id not in self.attached_parts:
+            return None
+        part_health = self.limb_health[part_id]
+        self.attached_parts.remove(part_id)
+        self.limb_health[part_id] = 0
+        return part_health
+
+    def reattach(self, part_item):
+        if (
+            part_item.part_id in self.attached_parts
+            or part_item.part_id not in self.limb_health
+        ):
+            return False
+        self.attached_parts.add(part_item.part_id)
+        self.limb_health[part_item.part_id] = min(
+            self.max_health, part_item.health
+        )
+        if part_item.spoiled or part_item.infected:
+            self.infected = True
+        return True
+
+    def heal_fully(self):
+        self.hp = self.max_health
+        for part_id, _label in BODY_PARTS:
+            if part_id in self.attached_parts:
+                self.limb_health[part_id] = self.max_health
+
+    @property
+    def effective_attack_power(self):
+        arm_health = (
+            sum(
+                self.limb_health[part_id]
+                for part_id in ("left_arm", "right_arm")
+            )
+        ) / (2 * self.max_health)
+        if self.attack_power <= 0:
+            return 0
+        return max(1, round(self.attack_power * (0.5 + 0.5 * arm_health)))
+
+    def can_move(self):
+        if not ({"left_leg", "right_leg"} & self.attached_parts):
+            return False
+        leg_health = (
+            sum(
+                self.limb_health[part_id]
+                for part_id in ("left_leg", "right_leg")
+            )
+        ) / (2 * self.max_health)
+        stumble_chance = (1 - leg_health) * 0.75
+        return random.random() >= stumble_chance
 
 
 class player(entity):
@@ -554,9 +787,81 @@ class world:
         self.chunks: dict[
             tuple[int, int], list[list[list[gameObject | None]]]
         ] = {}
+        self.entities_by_chunk: dict[tuple[int, int], set[entity]] = {}
+        self.saplings: set[block] = set()
+        self._generated_chunk_entities = {}
+        self._block_prototypes = {}
+        self._block_presets = None
+        self._item_presets = None
+        self._entity_presets = None
         self.chunk_width = 0
         self.chunk_height = 0
         self.active_chunk = (0, 0)
+
+    def _get_block_presets(self):
+        if self._block_presets is None:
+            self._block_presets = load_block_presets()
+        return self._block_presets
+
+    def _get_entity_presets(self):
+        if self._entity_presets is None:
+            self._entity_presets = load_entity_presets()
+        return self._entity_presets
+
+    def _get_item_presets(self):
+        if self._item_presets is None:
+            self._item_presets = load_item_presets()
+        return self._item_presets
+
+    def _create_terrain_block(self, preset_id, pos):
+        prototype = self._block_prototypes.get(preset_id)
+        if prototype is None:
+            prototype = block.from_preset(
+                self._get_block_presets()[preset_id], (0, 0, 0)
+            )
+            self._block_prototypes[preset_id] = prototype
+        # Copy preset fields without re-running the constructor for every tile.
+        terrain_block = object.__new__(block)
+        terrain_block.__dict__ = prototype.__dict__.copy()
+        terrain_block.pos = pos
+        return terrain_block
+
+    def _index_chunk_objects(self, chunk_key, chunk_layers):
+        chunk_entities = self._generated_chunk_entities.pop(
+            chunk_key, None
+        )
+        if chunk_entities is None:
+            chunk_entities = set()
+            for layer in chunk_layers:
+                for row in layer:
+                    for tile in row:
+                        if isinstance(tile, entity):
+                            chunk_entities.add(tile)
+                        elif isinstance(tile, block) and tile.grows_into_tree:
+                            self.saplings.add(tile)
+        if chunk_entities:
+            self.entities_by_chunk[chunk_key] = chunk_entities
+
+    def rebuild_object_indexes(self):
+        self.entities_by_chunk.clear()
+        self.saplings.clear()
+        self._generated_chunk_entities.clear()
+        for chunk_key, chunk_layers in self.chunks.items():
+            self._index_chunk_objects(chunk_key, chunk_layers)
+
+    def _track_tile_change(self, chunk_key, old_tile, new_tile):
+        if isinstance(old_tile, entity):
+            chunk_entities = self.entities_by_chunk.get(chunk_key)
+            if chunk_entities is not None:
+                chunk_entities.discard(old_tile)
+                if not chunk_entities:
+                    del self.entities_by_chunk[chunk_key]
+        elif isinstance(old_tile, block) and old_tile.grows_into_tree:
+            self.saplings.discard(old_tile)
+        if isinstance(new_tile, entity):
+            self.entities_by_chunk.setdefault(chunk_key, set()).add(new_tile)
+        elif isinstance(new_tile, block) and new_tile.grows_into_tree:
+            self.saplings.add(new_tile)
 
     def generate_world(self, width: int, height: int):
         if width < 1 or height < 1:
@@ -564,37 +869,42 @@ class world:
         self.chunk_width = width
         self.chunk_height = height
         self.chunks.clear()
+        self.entities_by_chunk.clear()
+        self.saplings.clear()
+        self._generated_chunk_entities.clear()
         self.active_chunk = (0, 0)
         self.layers = self._generate_chunk(0, 0)
         self.map = self.layers[self.SURFACE_DEPTH]
         self.subsurface = self.layers[self.SURFACE_DEPTH + 1:]
         self.chunks[(0, 0)] = self.layers
+        self._index_chunk_objects((0, 0), self.layers)
 
     @staticmethod
+    @lru_cache(maxsize=32768)
     def _terrain_noise(x, y, scale):
         grid_x, offset_x = divmod(x, scale)
         grid_y, offset_y = divmod(y, scale)
-
-        def corner_value(corner_x, corner_y):
-            seed = corner_x * 73856093 ^ corner_y * 19349663
-            return random.Random(seed).random()
 
         def smooth(value):
             return value * value * (3 - 2 * value)
 
         horizontal = smooth(offset_x / scale)
         vertical = smooth(offset_y / scale)
-        top_left = corner_value(grid_x, grid_y)
-        top_right = corner_value(grid_x + 1, grid_y)
-        bottom_left = corner_value(grid_x, grid_y + 1)
-        bottom_right = corner_value(grid_x + 1, grid_y + 1)
+        top_left = _terrain_corner_value(grid_x, grid_y)
+        top_right = _terrain_corner_value(grid_x + 1, grid_y)
+        bottom_left = _terrain_corner_value(grid_x, grid_y + 1)
+        bottom_right = _terrain_corner_value(grid_x + 1, grid_y + 1)
         top = top_left + (top_right - top_left) * horizontal
         bottom = bottom_left + (bottom_right - bottom_left) * horizontal
         return top + (bottom - top) * vertical
 
+    @lru_cache(maxsize=32768)
     def _surface_material(self, x, y):
         regional = self._terrain_noise(x, y, 12)
         local = self._terrain_noise(x, y, 4)
+        climate = self._terrain_noise(x + 4096, y - 8192, 30)
+        if climate > 0.9:
+            return "packed_ice"
         if regional < 0.3 or (regional < 0.4 and local < 0.45):
             return "sandy_soil"
         if regional > 0.84 and local > 0.62:
@@ -603,6 +913,7 @@ class world:
             return "dirt"
         return "grass"
 
+    @lru_cache(maxsize=32768)
     def get_surface_depth(self, x, y):
         regional = self._terrain_noise(x, y, 18)
         local = self._terrain_noise(x, y, 7)
@@ -643,7 +954,7 @@ class world:
             "grass", "dirt",
         ):
             return False
-        block_presets = load_block_presets()
+        block_presets = self._get_block_presets()
         for tree_x, tree_y, tree_depth, preset_id in tree_positions:
             self.set_tile(
                 tree_x,
@@ -660,13 +971,8 @@ class world:
         now = time.monotonic() if current_time is None else current_time
         saplings = [
             tile
-            for chunk_layers in self.chunks.values()
-            for layer in chunk_layers
-            for row in layer
-            for tile in row
-            if isinstance(tile, block)
-            and tile.grows_into_tree
-            and now - tile.planted_at >= 30.0
+            for tile in self.saplings
+            if now - tile.planted_at >= 30.0
         ]
         changed = False
         for sapling in saplings:
@@ -677,46 +983,124 @@ class world:
                 sapling.planted_at = now
         return changed
 
-    def _generate_chunk(self, chunk_x: int, chunk_y: int):
-        block_presets = load_block_presets()
+    def _generate_creature_village(
+        self, chunk_layers, chunk_x, chunk_y, block_presets, chunk_entities
+    ):
+        if (
+            (chunk_x, chunk_y) == (0, 0)
+            or self.chunk_width < 9
+            or self.chunk_height < 9
+        ):
+            return
+        seed = chunk_x * 73856093 ^ chunk_y * 19349663 ^ 0x71A6E
+        village_random = random.Random(seed)
+        if village_random.random() >= 0.14:
+            return
+
+        entity_presets = self._get_entity_presets()
+        entity_ids = sorted(entity_presets)
+        theme_index = (
+            chunk_x * 73856093 ^ chunk_y * 19349663
+        ) % len(entity_ids)
+        resident_preset = entity_presets[entity_ids[theme_index]]
+        is_hostile = resident_preset["disposition"] == "hostile"
+        wall_preset_id = "stone" if is_hostile else "oak_planks"
         origin_x = chunk_x * self.chunk_width
         origin_y = chunk_y * self.chunk_height
-        chunk_layers = []
-        for depth in range(self.Y_LEVEL_COUNT):
-            layer = []
-            for local_y in range(self.chunk_height):
-                row = []
-                for local_x in range(self.chunk_width):
+        center_x = self.chunk_width // 2
+        center_y = self.chunk_height // 2
+        house_y = center_y - 3
+        house_starts = (center_x - 4, center_x + 2)
+        house_cells = set()
+
+        for house_x in house_starts:
+            for offset_y in range(3):
+                for offset_x in range(3):
+                    if offset_x == 1 and offset_y == 2:
+                        continue
+                    local_x = house_x + offset_x
+                    local_y = house_y + offset_y
                     global_x = origin_x + local_x
                     global_y = origin_y + local_y
-                    surface_depth = self.get_surface_depth(global_x, global_y)
-                    if depth <= surface_depth:
-                        tile = None
-                    elif depth == surface_depth + 1:
-                        preset_id = self._surface_material(global_x, global_y)
-                        tile = block.from_preset(
-                            block_presets[preset_id],
-                            (global_x, global_y, depth),
+                    depth = self.get_surface_depth(global_x, global_y)
+                    current = chunk_layers[depth][local_y][local_x]
+                    if current is not None:
+                        if (
+                            not isinstance(current, block)
+                            or current.preset_id not in ("oak_log", "oak_leaves")
+                        ):
+                            continue
+                    preset_id = (
+                        "oak_log"
+                        if not is_hostile and offset_x in (0, 2)
+                        and offset_y in (0, 2)
+                        else wall_preset_id
+                    )
+                    chunk_layers[depth][local_y][local_x] = block.from_preset(
+                        block_presets[preset_id],
+                        (global_x, global_y, depth),
+                    )
+                    house_cells.add((local_x, local_y))
+
+        spawn_cells = [
+            (local_x, local_y)
+            for local_y in range(center_y, self.chunk_height - 1)
+            for local_x in range(1, self.chunk_width - 1)
+            if (local_x, local_y) not in house_cells
+        ]
+        village_random.shuffle(spawn_cells)
+        population = village_random.randint(3, 5)
+        spawned = 0
+        for local_x, local_y in spawn_cells:
+            global_x = origin_x + local_x
+            global_y = origin_y + local_y
+            depth = self.get_surface_depth(global_x, global_y)
+            if chunk_layers[depth][local_y][local_x] is not None:
+                continue
+            resident = entity.from_preset(
+                resident_preset,
+                (global_x, global_y, depth),
+            )
+            chunk_layers[depth][local_y][local_x] = resident
+            chunk_entities.add(resident)
+            spawned += 1
+            if spawned == population:
+                break
+
+    def _generate_chunk(self, chunk_x: int, chunk_y: int):
+        block_presets = self._get_block_presets()
+        chunk_entities = set()
+        origin_x = chunk_x * self.chunk_width
+        origin_y = chunk_y * self.chunk_height
+        chunk_layers = [
+            [
+                [None for _ in range(self.chunk_width)]
+                for _ in range(self.chunk_height)
+            ]
+            for _ in range(self.Y_LEVEL_COUNT)
+        ]
+        for local_y in range(self.chunk_height):
+            global_y = origin_y + local_y
+            for local_x in range(self.chunk_width):
+                global_x = origin_x + local_x
+                surface_depth = self.get_surface_depth(global_x, global_y)
+                surface_material = self._surface_material(global_x, global_y)
+                for depth in range(surface_depth + 1, self.Y_LEVEL_COUNT):
+                    preset_id = (
+                        surface_material if depth == surface_depth + 1
+                        else "dirt" if depth <= surface_depth + 3
+                        else "stone"
+                    )
+                    chunk_layers[depth][local_y][local_x] = (
+                        self._create_terrain_block(
+                            preset_id, (global_x, global_y, depth)
                         )
-                    else:
-                        preset_id = (
-                            "dirt"
-                            if depth <= surface_depth + 3
-                            else "stone"
-                        )
-                        tile = block.from_preset(
-                            block_presets[preset_id],
-                            (global_x, global_y, depth),
-                        )
-                    row.append(tile)
-                layer.append(row)
-            chunk_layers.append(layer)
+                    )
 
         starter_clearance = {(3, 5), (4, 4), (4, 5), (6, 5)}
         for tree_y in range(origin_y - 1, origin_y + self.chunk_height + 1):
             for tree_x in range(origin_x - 1, origin_x + self.chunk_width + 1):
-                seed = tree_x * 73856093 ^ tree_y * 19349663 ^ 0x5A17
-                if random.Random(seed).random() >= 0.035:
+                if _tree_spawn_roll(tree_x, tree_y) >= 0.035:
                     continue
                 tree_depth = self.get_surface_depth(tree_x, tree_y)
                 tree_tiles = self._tree_positions(
@@ -751,6 +1135,10 @@ class world:
                         )
                     )
 
+        self._generate_creature_village(
+            chunk_layers, chunk_x, chunk_y, block_presets, chunk_entities
+        )
+
         if (chunk_x, chunk_y) == (0, 0) and self.chunk_width >= 5 and self.chunk_height >= 2:
             center_x, center_y = self.chunk_width // 2, self.chunk_height // 2
             chest_x, chest_y = center_x - 2, center_y
@@ -772,12 +1160,15 @@ class world:
                 (furnace_x, furnace_y, self.get_surface_depth(furnace_x, furnace_y)),
                 background_color="#303944",
             )
+        self._generated_chunk_entities[(chunk_x, chunk_y)] = chunk_entities
         return chunk_layers
 
     def load_chunk(self, chunk_x: int, chunk_y: int):
         chunk_key = (chunk_x, chunk_y)
         if chunk_key not in self.chunks:
-            self.chunks[chunk_key] = self._generate_chunk(chunk_x, chunk_y)
+            chunk_layers = self._generate_chunk(chunk_x, chunk_y)
+            self.chunks[chunk_key] = chunk_layers
+            self._index_chunk_objects(chunk_key, chunk_layers)
         self.active_chunk = chunk_key
         self.layers = self.chunks[chunk_key]
         self.map = self.layers[self.SURFACE_DEPTH]
@@ -791,6 +1182,8 @@ class world:
 
     @staticmethod
     def is_solid(tile):
+        if isinstance(tile, door):
+            return not tile.is_open
         return (
             isinstance(tile, block) and tile.solid
         ) or (
@@ -810,12 +1203,16 @@ class world:
         return depth - start_depth
 
     def move_player(self, entity, dx, dy):
+        if not entity.can_move():
+            return "stumbled"
         x, y, depth = entity.pos
         target_x = x + dx
         target_y = y + dy
         target_tile = self.get_tile(target_x, target_y, depth)
         stepped_up = False
         if self.is_solid(target_tile):
+            if isinstance(target_tile, door):
+                return "blocked"
             if depth == 0 or self.is_solid(
                 self.get_tile(target_x, target_y, depth - 1)
             ):
@@ -848,7 +1245,9 @@ class world:
         chunk_x, chunk_y, local_x, local_y = self._chunk_location(x, y)
         chunk_key = (chunk_x, chunk_y)
         if chunk_key not in self.chunks:
-            self.chunks[chunk_key] = self._generate_chunk(chunk_x, chunk_y)
+            chunk_layers = self._generate_chunk(chunk_x, chunk_y)
+            self.chunks[chunk_key] = chunk_layers
+            self._index_chunk_objects(chunk_key, chunk_layers)
         chunk_layers = self.chunks[chunk_key]
         return chunk_layers[depth][local_y][local_x]
 
@@ -859,19 +1258,13 @@ class world:
             player_x, player_y
         )
         nearby_entities = []
-        for (chunk_x, chunk_y), chunk_layers in self.chunks.items():
+        for (chunk_x, chunk_y), chunk_entities in self.entities_by_chunk.items():
             if (
                 abs(chunk_x - player_chunk_x) > 1
                 or abs(chunk_y - player_chunk_y) > 1
             ):
                 continue
-            nearby_entities.extend(
-                tile
-                for layer in chunk_layers
-                for row in layer
-                for tile in row
-                if isinstance(tile, entity) and tile is not player_character
-            )
+            nearby_entities.extend(chunk_entities)
 
         changed = False
         for creature in nearby_entities:
@@ -881,7 +1274,7 @@ class world:
                 )
                 current_chunk = self.chunks.get((chunk_x, chunk_y))
                 if current_chunk is not None and current_chunk[creature.pos[2]][local_y][local_x] is creature:
-                    current_chunk[creature.pos[2]][local_y][local_x] = None
+                    self.set_tile(*creature.pos, None)
                     changed = True
                 continue
 
@@ -893,7 +1286,9 @@ class world:
             if creature.disposition == "hostile":
                 if distance == 1:
                     if now - creature.last_attack_time >= 1.0:
-                        player_character.hp -= creature.attack_power
+                        player_character.take_damage(
+                            creature.effective_attack_power
+                        )
                         creature.last_attack_time = now
                         changed = True
                     continue
@@ -910,7 +1305,11 @@ class world:
             else:
                 continue
 
-            if step is not None and self._move_entity(creature, step):
+            if (
+                step is not None
+                and creature.can_move()
+                and self._move_entity(creature, step)
+            ):
                 changed = True
         return changed
 
@@ -1025,6 +1424,17 @@ class world:
             if (tile := self.get_tile(x, y, visible_depth)) is not None
         ]
 
+    def get_visible_tile(self, x, y, depth):
+        visible_end = min(
+            self.Y_LEVEL_COUNT,
+            depth + self.VISIBLE_DEPTHS_BELOW + 1,
+        )
+        for visible_depth in range(depth, visible_end):
+            tile = self.get_tile(x, y, visible_depth)
+            if tile is not None:
+                return visible_depth, tile
+        return None
+
     def get_placement_depth(self, x, y, player_pos):
         player_x, player_y, player_depth = player_pos
         below_depth = player_depth + 1
@@ -1107,12 +1517,16 @@ class world:
         chunk_x, chunk_y, local_x, local_y = self._chunk_location(x, y)
         chunk_key = (chunk_x, chunk_y)
         if chunk_key not in self.chunks:
-            self.chunks[chunk_key] = self._generate_chunk(chunk_x, chunk_y)
+            chunk_layers = self._generate_chunk(chunk_x, chunk_y)
+            self.chunks[chunk_key] = chunk_layers
+            self._index_chunk_objects(chunk_key, chunk_layers)
         chunk_layers = self.chunks[chunk_key]
+        old_tile = chunk_layers[depth][local_y][local_x]
+        self._track_tile_change(chunk_key, old_tile, tile)
         chunk_layers[depth][local_y][local_x] = tile
 
     def create_block(self, preset_id, pos, presets=None):
-        presets = load_block_presets() if presets is None else presets
+        presets = self._get_block_presets() if presets is None else presets
         if preset_id not in presets:
             raise KeyError(f"Unknown block preset: {preset_id}")
         return block.from_preset(presets[preset_id], pos)
@@ -1125,12 +1539,12 @@ class world:
         self, item_id, pos=(0, 0, 0), item_presets=None, block_presets=None
     ):
         item_presets = (
-            load_item_presets() if item_presets is None else item_presets
+            self._get_item_presets() if item_presets is None else item_presets
         )
         item_preset = item_presets.get(item_id)
         if item_preset is None:
             block_presets = (
-                load_block_presets()
+                self._get_block_presets()
                 if block_presets is None else block_presets
             )
             if item_id not in block_presets:
@@ -1138,7 +1552,7 @@ class world:
             return block.from_preset(block_presets[item_id], pos)
         if item_preset.get("kind") == "block":
             block_presets = (
-                load_block_presets()
+                self._get_block_presets()
                 if block_presets is None else block_presets
             )
             if item_id not in block_presets:
@@ -1202,6 +1616,8 @@ class world:
                 item_preset["foreground_color"],
                 item_preset.get("background_color", "#273954"),
             )
+        if kind == "door":
+            return self.create_block(item_id, pos, block_presets)
         return craftedItem.from_preset(item_preset, pos)
 
     def break_block(self, x, y, depth, tool=None):
@@ -1255,11 +1671,58 @@ class world:
             print(" ".join(tile.icon if tile is not None else " " for tile in row))
 
 
+def is_cold_location(game_world, pos):
+    x, y, _depth = pos
+    surface_depth = game_world.get_surface_depth(x, y)
+    return any(
+        isinstance(tile, block) and tile.preset_id in COLD_BLOCK_IDS
+        for tile in (
+            game_world.get_tile(x, y, surface_depth),
+            game_world.get_tile(x, y, surface_depth + 1),
+        )
+    )
+
+
+def update_spoilage_in_collection(
+    collection, game_world, cold=False, location=None,
+):
+    location_is_cold = cold or (
+        location is not None and is_cold_location(game_world, location)
+    )
+    for item in collection:
+        if isinstance(item, bodyPartItem):
+            item.update_spoilage(location_is_cold)
+        elif isinstance(item, storageObject):
+            storage_is_cold = (
+                location_is_cold
+                or item.item_id == "icebox"
+                or (
+                    location is not None
+                    and is_cold_location(game_world, location)
+                )
+            )
+            update_spoilage_in_collection(
+                item.contents, game_world, storage_is_cold, item.pos
+            )
+
+
 def serialize_game_object(game_object):
     pos = list(game_object.pos)
     serialized = {"pos": pos, "count": getattr(game_object, "count", 1)}
-    if isinstance(game_object, block):
+    if isinstance(game_object, bodyPartItem):
+        serialized.update(
+            type="body_part",
+            part_id=game_object.part_id,
+            health=game_object.health,
+            spoil_remaining=game_object.spoil_remaining,
+            last_updated=game_object.last_updated,
+            spoiled=game_object.spoiled,
+            infected=game_object.infected,
+        )
+    elif isinstance(game_object, block):
         serialized.update(type="block", id=game_object.preset_id)
+        if isinstance(game_object, door):
+            serialized["is_open"] = game_object.is_open
         if game_object.grows_into_tree:
             serialized["growth_elapsed"] = max(
                 0.0, time.monotonic() - game_object.planted_at
@@ -1272,6 +1735,10 @@ def serialize_game_object(game_object):
             type="entity",
             id=preset_id,
             health=game_object.health,
+            limb_health=game_object.limb_health,
+            attached_parts=sorted(game_object.attached_parts),
+            infected=game_object.infected,
+            infection_elapsed=game_object.infection_elapsed,
         )
     elif isinstance(game_object, storageObject):
         serialized.update(
@@ -1293,6 +1760,306 @@ def serialize_game_object(game_object):
     return serialized
 
 
+CLAN_RANKS = ("member", "officer", "leader")
+CLAN_RELATIONS = ("neutral", "allied", "rival")
+CLAN_STARTING_DATA = {
+    "oakwardens": {
+        "name": "Oakwardens",
+        "motto": "Keep the old forests standing.",
+        "treasury": 250,
+        "members": {
+            "Elder Rowan": "leader",
+            "Mira Leafstep": "officer",
+            "Bramble": "member",
+            "Willow": "member",
+        },
+    },
+    "stonepact": {
+        "name": "Stone Pact",
+        "motto": "Build together; stand unbroken.",
+        "treasury": 300,
+        "members": {
+            "Thane Flint": "leader",
+            "Nora Anvil": "officer",
+            "Mossbeard": "member",
+            "Pebble": "member",
+        },
+    },
+    "mosscircle": {
+        "name": "Moss Circle",
+        "motto": "Trade knowledge, not territory.",
+        "treasury": 200,
+        "members": {
+            "Sage Caps": "leader",
+            "Fern": "officer",
+            "Pip": "member",
+            "Root": "member",
+        },
+    },
+    "nightveil": {
+        "name": "Nightveil",
+        "motto": "No path is closed after dark.",
+        "treasury": 350,
+        "members": {
+            "Warden Dusk": "leader",
+            "Ash": "officer",
+            "Shade": "member",
+            "Whisper": "member",
+        },
+    },
+}
+
+
+class clanPolitics:
+    INITIAL_COINS = 100
+    FOUNDING_COST = 50
+
+    def __init__(self):
+        self.wallet = self.INITIAL_COINS
+        self.membership = None
+        self.clans = {
+            clan_id: {
+                **definition,
+                "members": dict(definition["members"]),
+                "relations": {},
+            }
+            for clan_id, definition in CLAN_STARTING_DATA.items()
+        }
+        self._reset_relations()
+
+    def _reset_relations(self):
+        clan_ids = tuple(self.clans)
+        for clan_id, clan in self.clans.items():
+            clan["relations"] = {
+                other_id: "neutral"
+                for other_id in clan_ids if other_id != clan_id
+            }
+
+    @staticmethod
+    def _validate_amount(amount):
+        if not isinstance(amount, int) or amount <= 0:
+            raise ValueError("Enter a positive whole number of coins.")
+
+    def reset(self):
+        self.__init__()
+
+    def join(self, clan_id):
+        if clan_id not in self.clans:
+            raise ValueError("That clan no longer exists.")
+        if self.membership is not None:
+            raise ValueError("Leave your current clan before joining another.")
+        self.clans[clan_id]["members"]["You"] = "member"
+        self.membership = clan_id
+
+    def leave(self):
+        if self.membership is None:
+            raise ValueError("You are not in a clan.")
+        clan = self.clans[self.membership]
+        rank = clan["members"].pop("You")
+        if rank == "leader" and clan["members"]:
+            successor = next(
+                (
+                    member for member, member_rank in clan["members"].items()
+                    if member_rank == "officer"
+                ),
+                next(iter(clan["members"])),
+            )
+            clan["members"][successor] = "leader"
+        self.membership = None
+
+    def create_clan(self, name):
+        clean_name = " ".join(name.split())
+        if len(clean_name) < 3 or len(clean_name) > 32:
+            raise ValueError("Clan names must be between 3 and 32 characters.")
+        if self.membership is not None:
+            raise ValueError("Leave your current clan before founding one.")
+        if self.wallet < self.FOUNDING_COST:
+            raise ValueError(
+                f"Founding a clan costs {self.FOUNDING_COST} coins."
+            )
+        clan_id = re.sub(r"[^a-z0-9]+", "", clean_name.casefold())
+        if not clan_id or clan_id in self.clans:
+            raise ValueError("That clan name is already in use.")
+        self.wallet -= self.FOUNDING_COST
+        self.clans[clan_id] = {
+            "name": clean_name,
+            "motto": "A new banner rises.",
+            "treasury": 0,
+            "members": {"You": "leader"},
+            "relations": {
+                other_id: "neutral" for other_id in self.clans
+            },
+        }
+        for other_id in self.clans:
+            if other_id != clan_id:
+                self.clans[other_id]["relations"][clan_id] = "neutral"
+        self.membership = clan_id
+
+    def deposit(self, amount):
+        self._validate_amount(amount)
+        if self.membership is None:
+            raise ValueError("Join a clan before using its treasury.")
+        if self.wallet < amount:
+            raise ValueError("You do not have enough coins to deposit that amount.")
+        self.wallet -= amount
+        self.clans[self.membership]["treasury"] += amount
+
+    def withdraw(self, amount):
+        self._validate_amount(amount)
+        if self.membership is None:
+            raise ValueError("Join a clan before using its treasury.")
+        clan = self.clans[self.membership]
+        if clan["members"].get("You") not in ("officer", "leader"):
+            raise ValueError("Only clan officers and leaders can withdraw funds.")
+        if clan["treasury"] < amount:
+            raise ValueError("The clan treasury does not have enough coins.")
+        clan["treasury"] -= amount
+        self.wallet += amount
+
+    def change_rank(self, member_name, direction):
+        if self.membership is None:
+            raise ValueError("Join a clan before managing its ranks.")
+        clan = self.clans[self.membership]
+        if clan["members"].get("You") != "leader":
+            raise ValueError("Only the clan leader can change ranks.")
+        if member_name == "You":
+            raise ValueError("You cannot change your own rank directly.")
+        current_rank = clan["members"].get(member_name)
+        if current_rank is None:
+            raise ValueError("That member is no longer in your clan.")
+        rank_index = CLAN_RANKS.index(current_rank)
+        next_index = max(0, min(len(CLAN_RANKS) - 1, rank_index + direction))
+        if next_index == rank_index:
+            raise ValueError("That member is already at the highest/lowest rank.")
+        next_rank = CLAN_RANKS[next_index]
+        if next_rank == "leader":
+            clan["members"]["You"] = "officer"
+        clan["members"][member_name] = next_rank
+
+    def seek_promotion(self):
+        if self.membership is None:
+            raise ValueError("Join a clan before seeking a promotion.")
+        clan = self.clans[self.membership]
+        current_rank = clan["members"]["You"]
+        if current_rank == "leader":
+            raise ValueError("You already lead this clan.")
+        cost = 50 if current_rank == "member" else 100
+        if self.wallet < cost:
+            raise ValueError(
+                f"Promotion to the next rank requires {cost} coins."
+            )
+        self.wallet -= cost
+        clan["treasury"] += cost
+        if current_rank == "member":
+            clan["members"]["You"] = "officer"
+        else:
+            leader = next(
+                (
+                    member for member, rank in clan["members"].items()
+                    if rank == "leader"
+                ),
+                None,
+            )
+            if leader is not None:
+                clan["members"][leader] = "officer"
+            clan["members"]["You"] = "leader"
+
+    def set_relation(self, other_clan_id, relation):
+        if self.membership is None:
+            raise ValueError("Join a clan before conducting diplomacy.")
+        if other_clan_id not in self.clans or other_clan_id == self.membership:
+            raise ValueError("Choose a different existing clan.")
+        if relation not in CLAN_RELATIONS:
+            raise ValueError("Choose neutral, allied, or rival.")
+        clan = self.clans[self.membership]
+        current_relation = clan["relations"][other_clan_id]
+        if current_relation == relation:
+            raise ValueError(f"Relations are already {relation}.")
+        cost = {"neutral": 0, "allied": 25, "rival": 10}[relation]
+        if clan["treasury"] < cost:
+            raise ValueError(
+                f"Changing relations to {relation} costs {cost} treasury coins."
+            )
+        clan["treasury"] -= cost
+        clan["relations"][other_clan_id] = relation
+        self.clans[other_clan_id]["relations"][self.membership] = relation
+
+    def to_data(self):
+        return {
+            "wallet": self.wallet,
+            "membership": self.membership,
+            "clans": self.clans,
+        }
+
+    def load_data(self, data):
+        if not isinstance(data, dict):
+            raise ValueError("Saved clan politics must be an object.")
+        wallet = data.get("wallet")
+        if not isinstance(wallet, int) or wallet < 0:
+            raise ValueError("Saved coin balance must be a non-negative integer.")
+        clans_data = data.get("clans")
+        if not isinstance(clans_data, dict) or not clans_data:
+            raise ValueError("Saved clan list is invalid.")
+        clans = {}
+        for clan_id, saved_clan in clans_data.items():
+            if (
+                not isinstance(clan_id, str)
+                or not clan_id
+                or not isinstance(saved_clan, dict)
+            ):
+                raise ValueError("Saved clan entry is invalid.")
+            name, motto = saved_clan.get("name"), saved_clan.get("motto")
+            treasury = saved_clan.get("treasury")
+            members, relations = (
+                saved_clan.get("members"), saved_clan.get("relations")
+            )
+            if (
+                not isinstance(name, str) or not name
+                or not isinstance(motto, str)
+                or not isinstance(treasury, int) or treasury < 0
+                or not isinstance(members, dict)
+                or not isinstance(relations, dict)
+            ):
+                raise ValueError(f"Saved clan '{clan_id}' has invalid data.")
+            if any(
+                not isinstance(member, str)
+                or not member
+                or rank not in CLAN_RANKS
+                for member, rank in members.items()
+            ):
+                raise ValueError(f"Saved clan '{name}' has invalid member ranks.")
+            leaders = sum(rank == "leader" for rank in members.values())
+            if members and leaders != 1:
+                raise ValueError(f"Saved clan '{name}' must have one leader.")
+            clans[clan_id] = {
+                "name": name,
+                "motto": motto,
+                "treasury": treasury,
+                "members": dict(members),
+                "relations": dict(relations),
+            }
+        for clan_id, clan in clans.items():
+            if set(clan["relations"]) != set(clans) - {clan_id}:
+                raise ValueError(f"Saved relations for '{clan['name']}' are invalid.")
+            if any(relation not in CLAN_RELATIONS for relation in clan["relations"].values()):
+                raise ValueError(f"Saved relations for '{clan['name']}' are invalid.")
+            for other_id, relation in clan["relations"].items():
+                if clans[other_id]["relations"].get(clan_id) != relation:
+                    raise ValueError("Saved clan relations are not reciprocal.")
+        membership = data.get("membership")
+        if membership is not None and (
+            membership not in clans or "You" not in clans[membership]["members"]
+        ):
+            raise ValueError("Saved clan membership is invalid.")
+        if sum("You" in clan["members"] for clan in clans.values()) != (
+            1 if membership is not None else 0
+        ):
+            raise ValueError("Saved player clan membership is inconsistent.")
+        self.wallet = wallet
+        self.membership = membership
+        self.clans = clans
+
+
 def deserialize_game_object(
     serialized, game_world, block_presets=None, item_presets=None,
     entity_presets=None,
@@ -1307,18 +2074,60 @@ def deserialize_game_object(
         entity_presets = load_entity_presets()
     pos = tuple(serialized["pos"])
     object_type = serialized["type"]
-    preset_id = serialized["id"]
+    preset_id = serialized.get("id")
     if object_type == "block":
         restored = game_world.create_block(preset_id, pos, block_presets)
+        if isinstance(restored, door):
+            restored.is_open = serialized.get("is_open", False)
         if restored.grows_into_tree:
             restored.planted_at = (
                 time.monotonic() - serialized.get("growth_elapsed", 0.0)
             )
+    elif object_type == "body_part":
+        part_id = serialized.get("part_id")
+        part_names = dict(BODY_PARTS)
+        health = serialized.get("health")
+        spoil_remaining = serialized.get("spoil_remaining")
+        last_updated = serialized.get("last_updated")
+        spoiled = serialized.get("spoiled", False)
+        infected = serialized.get("infected", False)
+        if (
+            not isinstance(part_id, str)
+            or part_id not in part_names
+            or isinstance(health, bool)
+            or not isinstance(health, int)
+            or not 0 <= health <= 100
+            or isinstance(spoil_remaining, bool)
+            or not isinstance(spoil_remaining, (int, float))
+            or not 0 <= spoil_remaining <= PART_SPOIL_TIME
+            or isinstance(last_updated, bool)
+            or not isinstance(last_updated, (int, float))
+            or not -1_000_000_000_000 <= last_updated <= 1_000_000_000_000
+            or not isinstance(spoiled, bool)
+            or not isinstance(infected, bool)
+        ):
+            raise ValueError("Save contains an invalid detached body part.")
+        restored = bodyPartItem(
+            part_id,
+            part_names[part_id],
+            health,
+            spoil_remaining,
+            last_updated,
+            spoiled,
+            infected,
+        )
     elif object_type == "entity":
         if preset_id not in entity_presets:
             raise ValueError(f"Save refers to unknown entity preset '{preset_id}'.")
         restored = entity.from_preset(entity_presets[preset_id], pos)
         restored.hp = serialized["health"]
+        if "limb_health" in serialized:
+            restored.restore_limb_health(serialized["limb_health"])
+        restored.restore_body_state(
+            serialized.get("attached_parts"),
+            serialized.get("infected", False),
+            serialized.get("infection_elapsed", 0.0),
+        )
     elif object_type in ("item", "storage"):
         restored = game_world.create_crafted_item(
             preset_id, pos, item_presets, block_presets
@@ -1349,8 +2158,21 @@ def deserialize_game_object(
 
 def save_game_data(
     save_path, game_world, player_character, selected_layer,
-    hotbar_items=None, selected_hotbar_slot=0,
+    hotbar_items=None, selected_hotbar_slot=0, clan_politics=None,
 ):
+    update_spoilage_in_collection(
+        player_character.inventory,
+        game_world,
+        location=player_character.pos,
+    )
+    for layers in game_world.chunks.values():
+        for layer in layers:
+            for row in layer:
+                for tile in row:
+                    if isinstance(tile, (bodyPartItem, storageObject)):
+                        update_spoilage_in_collection(
+                            [tile], game_world, location=tile.pos
+                        )
     chunks = []
     for (chunk_x, chunk_y), layers in sorted(game_world.chunks.items()):
         chunks.append({
@@ -1374,9 +2196,18 @@ def save_game_data(
         "chunk_width": game_world.chunk_width,
         "chunk_height": game_world.chunk_height,
         "chunks": chunks,
+        "clan_politics": (
+            clan_politics.to_data()
+            if clan_politics is not None
+            else clanPolitics().to_data()
+        ),
         "player": {
             "pos": list(player_character.pos),
             "health": player_character.health,
+            "limb_health": player_character.limb_health,
+            "attached_parts": sorted(player_character.attached_parts),
+            "infected": player_character.infected,
+            "infection_elapsed": player_character.infection_elapsed,
             "inventory": [
                 serialize_game_object(item)
                 for item in player_character.inventory
@@ -1407,6 +2238,8 @@ def load_game_data(save_path, game_world):
         raise ValueError(f"{save_path.name} does not contain a save object.")
     if data.get("version") != SAVE_VERSION:
         raise ValueError(f"Unsupported save version in {save_path.name}.")
+    politics = clanPolitics()
+    politics.load_data(data.get("clan_politics", politics.to_data()))
     width = data.get("chunk_width")
     height = data.get("chunk_height")
     if (
@@ -1484,6 +2317,34 @@ def load_game_data(save_path, game_world):
     health = player_data["health"]
     if not isinstance(health, int) or not 0 <= health <= 100:
         raise ValueError(f"{save_path.name} has invalid player health.")
+    limb_health = player_data.get("limb_health", {})
+    if not isinstance(limb_health, dict) or any(
+        part_id not in {key for key, _label in BODY_PARTS}
+        or not isinstance(value, int)
+        or not 0 <= value <= 100
+        for part_id, value in limb_health.items()
+    ):
+        raise ValueError(f"{save_path.name} has invalid player limb health.")
+    attached_parts = player_data.get("attached_parts")
+    if attached_parts is not None and (
+        not isinstance(attached_parts, list)
+        or any(
+            not isinstance(part_id, str)
+            or part_id not in {key for key, _label in BODY_PARTS}
+            for part_id in attached_parts
+        )
+        or len(set(attached_parts)) != len(attached_parts)
+    ):
+        raise ValueError(f"{save_path.name} has invalid attached body parts.")
+    infected = player_data.get("infected", False)
+    infection_elapsed = player_data.get("infection_elapsed", 0.0)
+    if (
+        not isinstance(infected, bool)
+        or isinstance(infection_elapsed, bool)
+        or not isinstance(infection_elapsed, (int, float))
+        or not 0 <= infection_elapsed < INFECTION_DAMAGE_INTERVAL
+    ):
+        raise ValueError(f"{save_path.name} has invalid infection data.")
     selected_layer = player_data["selected_layer"]
     if (
         not isinstance(selected_layer, int)
@@ -1519,6 +2380,7 @@ def load_game_data(save_path, game_world):
     game_world.chunk_width = width
     game_world.chunk_height = height
     game_world.chunks = loaded_chunks
+    game_world.rebuild_object_indexes()
     game_world.active_chunk = active_chunk_key
     game_world.layers = active_layers
     game_world.map = active_layers[world.SURFACE_DEPTH]
@@ -1526,6 +2388,10 @@ def load_game_data(save_path, game_world):
     return {
         "pos": player_pos,
         "health": health,
+        "limb_health": limb_health,
+        "attached_parts": attached_parts,
+        "infected": infected,
+        "infection_elapsed": infection_elapsed,
         "inventory": inventory,
         "selected_layer": selected_layer,
         "hotbar": [
@@ -1533,6 +2399,7 @@ def load_game_data(save_path, game_world):
             for index in hotbar
         ],
         "selected_hotbar_slot": selected_hotbar_slot,
+        "clan_politics": politics.to_data(),
     }
 
 
@@ -1555,7 +2422,14 @@ def save_path_for_name(name):
 
 def main():
     game_world = world()
+    politics = clanPolitics()
     width, height = 10, 10
+    zoom_levels = (16, 20, 24, 28, 34, 42, 52, 64)
+    zoom_index = zoom_levels.index(34)
+    cell_size = zoom_levels[zoom_index]
+    viewport_pixels = 340
+    viewport_width = viewport_pixels // cell_size
+    viewport_height = viewport_pixels // cell_size
     game_world.generate_world(width, height)
     crafting_recipes = load_crafting_recipes()
     player_x, player_y = width // 2 - 1, height // 2 - 1
@@ -1567,6 +2441,11 @@ def main():
     selected_layer = player_surface_depth
     game_active = False
     entity_update_job = None
+    last_entity_update = time.monotonic()
+    task_queue = []
+    active_task = None
+    task_started = False
+    task_runner_job = None
 
     root = tk.Tk()
     root.title("Goblin Fortress")
@@ -1625,19 +2504,48 @@ def main():
         text="Save / Menu",
         command=lambda: open_save_menu(),
     ).pack(anchor="w", pady=(0, 5))
+    tk.Button(
+        map_column,
+        text="Clans & Politics",
+        command=lambda: open_clan_management(),
+    ).pack(anchor="w", pady=(0, 5))
     map_frame = tk.LabelFrame(map_column, text="World", padx=8, pady=8)
     map_frame.pack(anchor="w")
-    cells = []
-    for y in range(height):
-        row = []
-        for x in range(width):
-            cell = tk.Canvas(
-                map_frame, width=34, height=34, highlightthickness=1,
-                highlightbackground="#888888", background="#f0f0f0",
-            )
-            cell.grid(row=y, column=x)
-            row.append(cell)
-        cells.append(row)
+    map_canvas = tk.Canvas(
+        map_frame,
+        width=viewport_width * cell_size,
+        height=viewport_height * cell_size,
+        highlightthickness=0,
+        background="#000000",
+    )
+    map_canvas.pack()
+    map_background_items = []
+    map_text_items = []
+    map_render_states = []
+    rendered_view_state = None
+    rendered_player_position = None
+    rendered_entity_ids = set()
+    zoom_frame = tk.Frame(map_column)
+    zoom_frame.pack(anchor="w", fill="x", pady=(5, 0))
+    tk.Button(
+        zoom_frame, text="Zoom -", command=lambda: change_zoom(-1)
+    ).pack(side="left")
+    zoom_label = tk.Label(zoom_frame, anchor="center", width=12)
+    zoom_label.pack(side="left", expand=True)
+    tk.Button(
+        zoom_frame, text="Zoom +", command=lambda: change_zoom(1)
+    ).pack(side="right")
+    task_frame = tk.LabelFrame(map_column, text="Task queue", padx=6, pady=5)
+    task_frame.pack(anchor="w", fill="x", pady=(5, 0))
+    task_list = tk.Listbox(
+        task_frame, width=32, height=4, exportselection=False
+    )
+    task_list.pack(fill="x")
+    tk.Button(
+        task_frame,
+        text="Clear tasks",
+        command=lambda: clear_task_queue("Task queue cleared."),
+    ).pack(fill="x", pady=(4, 0))
 
     layer_frame = tk.LabelFrame(right_panel, text="Y Level", padx=8, pady=8)
     layer_frame.pack(fill="x")
@@ -1653,6 +2561,37 @@ def main():
         highlightbackground="#444444", background="#202020",
     )
     health_bar.pack(fill="x")
+    health_render_state = None
+    infection_label = tk.Label(
+        health_frame, text="No infection", anchor="w", foreground="#63C76A"
+    )
+    infection_label.pack(fill="x", pady=(3, 0))
+    tk.Button(
+        health_frame,
+        text="Treat infection (1 Healing Salve)",
+        command=lambda: treat_infection(),
+    ).pack(fill="x", pady=(3, 0))
+    limb_frame = tk.LabelFrame(
+        right_panel, text="Body Parts & Organs", padx=6, pady=5
+    )
+    limb_frame.pack(fill="x", pady=(8, 0))
+    limb_bars = {}
+    for part_id, part_label in BODY_PARTS:
+        row = tk.Frame(limb_frame)
+        row.pack(fill="x", pady=1)
+        tk.Label(row, text=part_label, width=10, anchor="w").pack(side="left")
+        limb_bar = tk.Canvas(
+            row, width=130, height=16, highlightthickness=1,
+            highlightbackground="#555555", background="#202020",
+        )
+        limb_bar.pack(side="left", fill="x", expand=True)
+        limb_bars[part_id] = limb_bar
+    tk.Button(
+        limb_frame,
+        text="Surgery / Reattach",
+        command=lambda: open_surgery_dialog(),
+    ).pack(fill="x", pady=(4, 0))
+    limb_render_states = {}
 
     hotbar_frame = tk.LabelFrame(right_panel, text="Hotbar", padx=8, pady=8)
     hotbar_frame.pack(fill="x", pady=(8, 0))
@@ -1676,9 +2615,11 @@ def main():
         command=lambda: open_inventory_crafting(),
     ).pack(fill="x", pady=(5, 0))
     inventory_visible = []
+    inventory_render_state = None
     simple_crafting_recipe_ids = {
         "oak_planks",
         "oak_sapling",
+        "oak_door",
         "grass",
         "dirt_bricks",
         "stone_bricks",
@@ -1707,7 +2648,8 @@ def main():
         text=(
             "Move: arrows/WASD | Player Y: Ctrl+Up/Down | "
             "Camera Y: [ / ] | Hotbar: 1-5 | F: use item | "
-            "Right-click inventory item to assign"
+            "Attack nearby creatures: right-click | "
+            "Zoom: buttons / Ctrl+scroll | Right-click inventory item to assign"
         ),
         anchor="w",
     )
@@ -1733,10 +2675,9 @@ def main():
                 f"{index + 1}: {item.icon} {item.name}{stack_count}"
                 if item else f"{index + 1}: Empty"
             )
-            button.config(
-                text=label,
-                relief="sunken" if index == selected_hotbar_slot else "raised",
-            )
+            relief = "sunken" if index == selected_hotbar_slot else "raised"
+            if button.cget("text") != label or button.cget("relief") != relief:
+                button.config(text=label, relief=relief)
 
     def select_hotbar_slot(index):
         nonlocal selected_hotbar_slot
@@ -1755,35 +2696,62 @@ def main():
 
     def use_selected_item():
         item = selected_item()
-        success, message = use_item(item, player_character)
-        if success:
-            refresh_display()
-        status.config(text=message)
+        if not isinstance(item, usableItem):
+            status.config(text="That item cannot be used directly.")
+            return
+        enqueue_task("use", item=item)
 
     def selected_item_from_inventory():
         selection = inventory_list.curselection()
         return inventory_visible[selection[0]] if selection else None
 
     def refresh_inventory():
+        nonlocal inventory_render_state
         selection = inventory_list.curselection()
         selected = inventory_visible[selection[0]] if selection else None
         query = inventory_search_var.get().strip().casefold()
-        inventory_visible[:] = [
+        visible_items = [
             item for item in player_character.inventory
             if query in item.name.casefold() or query in item.description.casefold()
         ]
-        inventory_list.delete(0, tk.END)
-        for item in inventory_visible:
-            stack_count = f" x{item.count}" if item.stackable else ""
-            durability = (
-                f" ({item.durability} uses)"
-                if isinstance(item, toolItem) else ""
+        render_state = (
+            query,
+            tuple(
+                (
+                    id(item),
+                    item.name,
+                    item.icon,
+                    getattr(item, "count", 1),
+                    getattr(item, "durability", None),
+                    (
+                        item.spoiled,
+                        round(item.spoil_remaining),
+                    ) if isinstance(item, bodyPartItem) else None,
+                )
+                for item in visible_items
             )
-            inventory_list.insert(
-                tk.END, f"{item.icon} {item.name}{stack_count}{durability}"
-            )
-        if selected in inventory_visible:
-            inventory_list.selection_set(inventory_visible.index(selected))
+        )
+        if render_state != inventory_render_state:
+            inventory_visible[:] = visible_items
+            inventory_list.delete(0, tk.END)
+            for item in inventory_visible:
+                stack_count = f" x{item.count}" if item.stackable else ""
+                durability = (
+                    f" ({item.durability} uses)"
+                    if isinstance(item, toolItem) else ""
+                )
+                spoilage = (
+                    f" ({max(0, round(item.spoil_remaining))}s)"
+                    if isinstance(item, bodyPartItem) and not item.spoiled
+                    else ""
+                )
+                inventory_list.insert(
+                    tk.END,
+                    f"{item.icon} {item.name}{stack_count}{durability}{spoilage}",
+                )
+            if selected in inventory_visible:
+                inventory_list.selection_set(inventory_visible.index(selected))
+            inventory_render_state = render_state
         refresh_hotbar()
         refresh_crafting_menu()
 
@@ -1984,21 +2952,17 @@ def main():
 
     def set_hovered_cell(x, y):
         nonlocal hovered_cell
+        if hovered_cell == (x, y):
+            return
         hovered_cell = (x, y)
         update_hovered_name()
-
-    def clear_hovered_cell(x, y):
-        nonlocal hovered_cell
-        if hovered_cell == (x, y):
-            hovered_cell = None
-            update_hovered_name()
 
     def update_hovered_name():
         if hovered_cell is None:
             hovered_name.config(text="Hover over a map tile")
             return
 
-        origin_x, origin_y = current_chunk_origin()
+        origin_x, origin_y = current_view_origin()
         cell_x, cell_y = hovered_cell
         x, y = origin_x + cell_x, origin_y + cell_y
         player_x, player_y, player_depth = player_character.pos
@@ -2011,9 +2975,9 @@ def main():
             )
             return
 
-        visible_tiles = game_world.get_visible_tiles(x, y, selected_layer)
-        if visible_tiles:
-            depth, tile = visible_tiles[0]
+        visible_tile = game_world.get_visible_tile(x, y, selected_layer)
+        if visible_tile is not None:
+            depth, tile = visible_tile
             tile_name = tile.name
         else:
             depth = selected_layer
@@ -2022,44 +2986,209 @@ def main():
             text=f"{tile_name} (Y level {world.Y_LEVEL_COUNT - depth})"
         )
 
-    def draw_entity(canvas, creature):
+    def draw_entity(
+        canvas, creature, offset_x=0, offset_y=0, tag="dynamic"
+    ):
         color = creature.foreground_color
-        canvas.create_line(17, 13, 17, 22, fill=color, width=2)
-        canvas.create_line(17, 15, 10, 19, fill=color, width=2)
-        canvas.create_line(17, 15, 24, 19, fill=color, width=2)
-        canvas.create_line(17, 22, 12, 29, fill=color, width=2)
-        canvas.create_line(17, 22, 22, 29, fill=color, width=2)
-        canvas.create_oval(
-            12, 2, 22, 12, fill=color, outline="#FFFFFF", width=1
-        )
-        canvas.create_text(
-            17, 7, text=creature.icon, fill="#FFFFFF",
-            font=("Consolas", 7, "bold"),
-        )
+        scale = cell_size / 34
+        line_width = max(1, round(2 * scale))
+        attached = creature.attached_parts
+        if "chest" in attached:
+            canvas.create_line(
+                offset_x + round(17 * scale), offset_y + round(13 * scale),
+                offset_x + round(17 * scale), offset_y + round(22 * scale),
+                fill=color, width=line_width, tags=(tag,),
+            )
+        if "left_arm" in attached:
+            canvas.create_line(
+                offset_x + round(17 * scale), offset_y + round(15 * scale),
+                offset_x + round(10 * scale), offset_y + round(19 * scale),
+                fill=color, width=line_width, tags=(tag,),
+            )
+        if "right_arm" in attached:
+            canvas.create_line(
+                offset_x + round(17 * scale), offset_y + round(15 * scale),
+                offset_x + round(24 * scale), offset_y + round(19 * scale),
+                fill=color, width=line_width, tags=(tag,),
+            )
+        if "left_leg" in attached:
+            canvas.create_line(
+                offset_x + round(17 * scale), offset_y + round(22 * scale),
+                offset_x + round(12 * scale), offset_y + round(29 * scale),
+                fill=color, width=line_width, tags=(tag,),
+            )
+        if "right_leg" in attached:
+            canvas.create_line(
+                offset_x + round(17 * scale), offset_y + round(22 * scale),
+                offset_x + round(22 * scale), offset_y + round(29 * scale),
+                fill=color, width=line_width, tags=(tag,),
+            )
+        if "head" in attached:
+            canvas.create_oval(
+                offset_x + round(12 * scale), offset_y + round(2 * scale),
+                offset_x + round(22 * scale), offset_y + round(12 * scale),
+                fill=color, outline="#FFFFFF", width=max(1, round(scale)),
+                tags=(tag,),
+            )
+            canvas.create_text(
+                offset_x + round(17 * scale), offset_y + round(7 * scale),
+                text=creature.icon, fill="#FFFFFF",
+                font=("Consolas", max(5, round(7 * scale)), "bold"),
+                tags=(tag,),
+            )
 
-    def refresh_display():
+    def update_map_cell(
+        screen_x, screen_y, origin_x, origin_y, player_depth,
+        draw_sprites=True,
+    ):
+        world_x, world_y = origin_x + screen_x, origin_y + screen_y
+        visible_tile = game_world.get_visible_tile(
+            world_x, world_y, selected_layer
+        )
+        tile = visible_tile[1] if visible_tile is not None else None
+        visible_depth = (
+            visible_tile[0] if visible_tile is not None else selected_layer
+        )
+        is_player = (world_x, world_y, selected_layer) == player_character.pos
+        left = screen_x * cell_size
+        top = screen_y * cell_size
+        background = "#000000"
+        text = ""
+        foreground = "#FFFFFF"
+        font_size = max(7, round(cell_size * 14 / 34))
+        if hasattr(tile, "background_color"):
+            background = color_at_depth(
+                tile.background_color, visible_depth, player_depth
+            )
+        if is_player:
+            text = None
+            if draw_sprites:
+                draw_entity(
+                    map_canvas, player_character, left, top, "player-sprite"
+                )
+        elif isinstance(tile, entity):
+            text = None
+            if draw_sprites and tile not in rendered_entity_ids:
+                draw_entity(map_canvas, tile, left, top)
+                rendered_entity_ids.add(tile)
+        elif tile is not None:
+            text = (
+                "/" if isinstance(tile, door) and tile.is_open
+                else tile.icon
+            )
+            foreground = color_at_depth(
+                tile.foreground_color, visible_depth, player_depth
+            )
+        index = screen_y * viewport_width + screen_x
+        render_state = (background, text, foreground, font_size)
+        if map_render_states[index] != render_state:
+            map_canvas.itemconfigure(
+                map_background_items[index], fill=background
+            )
+            map_canvas.itemconfigure(
+                map_text_items[index],
+                text=text or "",
+                fill=foreground,
+                font=("Consolas", font_size),
+            )
+            map_render_states[index] = render_state
+        return tile
+
+    def draw_mining_progress(origin_x, origin_y):
+        if mining_state is None:
+            return
+        world_x, world_y = mining_state["position"][:2]
+        screen_x, screen_y = world_x - origin_x, world_y - origin_y
+        if not (
+            0 <= screen_x < viewport_width
+            and 0 <= screen_y < viewport_height
+        ):
+            return
+        progress = min(
+            1.0,
+            (time.monotonic() - mining_state["started_at"])
+            / mining_state["duration"],
+        )
+        left, top = screen_x * cell_size, screen_y * cell_size
+        bar_margin = max(1, round(cell_size * 0.06))
+        bar_top = max(1, round(cell_size * 0.06))
+        bar_bottom = max(bar_top + 1, round(cell_size * 0.15))
+        bar_width = cell_size - 2 * bar_margin
+        map_canvas.create_rectangle(
+            left + bar_margin, top + bar_top,
+            left + cell_size - bar_margin, top + bar_bottom,
+            fill="#202020", outline="#FFFFFF", tags=("dynamic",),
+        )
+        if progress > 0:
+            map_canvas.create_rectangle(
+                left + bar_margin + 1, top + bar_top + 1,
+                left + bar_margin + 1 + round((bar_width - 2) * progress),
+                top + bar_bottom - 1,
+                fill="#52D273", outline="", tags=("dynamic",),
+            )
+
+    def refresh_display(player_moved_from=None):
+        nonlocal health_render_state, rendered_view_state
+        nonlocal rendered_player_position
         player_x, player_y, player_depth = player_character.pos
-        health_bar.delete("all")
         health_ratio = (
             max(0, min(1, player_character.hp / player_character.max_health))
             if player_character.max_health > 0 else 0
         )
-        health_bar.create_rectangle(
-            0, 0, round(190 * health_ratio), 22,
-            fill="#3DBB58" if health_ratio > 0.3 else "#D44343",
-            outline="",
+        health_state = (player_character.hp, player_character.max_health)
+        if health_render_state != health_state:
+            health_bar.delete("all")
+            health_bar.create_rectangle(
+                0, 0, round(190 * health_ratio), 22,
+                fill="#3DBB58" if health_ratio > 0.3 else "#D44343",
+                outline="",
+            )
+            health_bar.create_text(
+                95, 11,
+                text=f"HP {player_character.hp}/{player_character.max_health}",
+                fill="#FFFFFF",
+                font=("Consolas", 10, "bold"),
+            )
+            health_render_state = health_state
+        infection_label.config(
+            text=(
+                "Infection: losing 1 HP every 5 seconds"
+                if player_character.infected else "No infection"
+            ),
+            foreground="#D44343" if player_character.infected else "#63C76A",
         )
-        health_bar.create_text(
-            95, 11,
-            text=f"HP {player_character.hp}/{player_character.max_health}",
-            fill="#FFFFFF",
-            font=("Consolas", 10, "bold"),
-        )
+        for part_id, part_label in BODY_PARTS:
+            limb_health = player_character.limb_health[part_id]
+            limb_ratio = limb_health / player_character.max_health
+            attached = part_id in player_character.attached_parts
+            limb_state = (limb_health, player_character.max_health, attached)
+            if limb_render_states.get(part_id) != limb_state:
+                limb_bar = limb_bars[part_id]
+                limb_bar.delete("all")
+                limb_bar.create_rectangle(
+                    0, 0, round(130 * limb_ratio), 16,
+                    fill="#555555" if not attached else (
+                        "#3DBB58" if limb_ratio > 0.6
+                        else "#E0A52E" if limb_ratio > 0.3
+                        else "#D44343"
+                    ),
+                    outline="",
+                )
+                limb_bar.create_text(
+                    65, 8,
+                    text=(
+                        "Missing" if not attached
+                        else f"{limb_health}/{player_character.max_health}"
+                    ),
+                    fill="#FFFFFF",
+                    font=("Consolas", 8, "bold"),
+                )
+                limb_render_states[part_id] = limb_state
         game_world.load_chunk(
             player_x // game_world.chunk_width,
             player_y // game_world.chunk_height,
         )
-        origin_x, origin_y = current_chunk_origin()
+        origin_x, origin_y = current_view_origin()
         chunk_x = player_x // game_world.chunk_width
         chunk_y = player_y // game_world.chunk_height
         visible_bottom_depth = min(
@@ -2081,68 +3210,227 @@ def main():
                 f"Player Y: {world.Y_LEVEL_COUNT - player_depth}"
             )
         )
-        for y in range(height):
-            for x in range(width):
-                world_x, world_y = origin_x + x, origin_y + y
-                visible_tiles = game_world.get_visible_tiles(
-                    world_x, world_y, selected_layer
+        view_state = (
+            origin_x, origin_y, selected_layer,
+            viewport_width, viewport_height,
+        )
+        can_update_player_only = (
+            player_moved_from is not None
+            and rendered_view_state == view_state
+            and rendered_player_position == player_moved_from
+        )
+        if can_update_player_only:
+            map_canvas.delete("player-sprite")
+            old_screen = (
+                player_moved_from[0] - origin_x,
+                player_moved_from[1] - origin_y,
+            )
+            new_screen = (player_x - origin_x, player_y - origin_y)
+            old_tile = None
+            if (
+                0 <= old_screen[0] < viewport_width
+                and 0 <= old_screen[1] < viewport_height
+            ):
+                old_tile = update_map_cell(
+                    *old_screen, origin_x, origin_y, player_depth,
+                    draw_sprites=False,
                 )
-                tile = visible_tiles[0][1] if visible_tiles else None
-                is_player = (world_x, world_y, selected_layer) == player_character.pos
-                cell = cells[y][x]
-                cell.delete("all")
-                cell.configure(background="#000000")
-                if hasattr(tile, "background_color"):
-                    cell.create_rectangle(
-                        0, 0, 34, 34,
-                        fill=color_at_depth(
-                            tile.background_color,
-                            visible_tiles[0][0],
-                            player_depth,
-                        ),
-                        outline="",
+            if (
+                isinstance(old_tile, entity)
+                and old_tile not in rendered_entity_ids
+            ):
+                draw_entity(
+                    map_canvas,
+                    old_tile,
+                    old_screen[0] * cell_size,
+                    old_screen[1] * cell_size,
+                )
+                rendered_entity_ids.add(old_tile)
+            if (
+                0 <= new_screen[0] < viewport_width
+                and 0 <= new_screen[1] < viewport_height
+            ):
+                update_map_cell(
+                    *new_screen, origin_x, origin_y, player_depth,
+                    draw_sprites=False,
+                )
+                draw_entity(
+                    map_canvas, player_character,
+                    new_screen[0] * cell_size,
+                    new_screen[1] * cell_size,
+                    "player-sprite",
+                )
+        else:
+            map_canvas.delete("dynamic")
+            map_canvas.delete("player-sprite")
+            rendered_entity_ids.clear()
+            for y in range(viewport_height):
+                for x in range(viewport_width):
+                    update_map_cell(
+                        x, y, origin_x, origin_y, player_depth
                     )
-                if is_player:
-                    draw_entity(cell, player_character)
-                elif isinstance(tile, entity):
-                    draw_entity(
-                        cell,
-                        tile,
-                    )
-                elif tile is not None:
-                    cell.create_text(
-                        15, 14, text=tile.icon,
-                        fill=color_at_depth(
-                            tile.foreground_color,
-                            visible_tiles[0][0],
-                            player_depth,
-                        ),
-                        font=("Consolas", 14),
-                    )
-                if (
-                    mining_state is not None
-                    and (world_x, world_y)
-                    == mining_state["position"][:2]
-                ):
-                    progress = min(
-                        1.0,
-                        (time.monotonic() - mining_state["started_at"])
-                        / mining_state["duration"],
-                    )
-                    cell.create_rectangle(
-                        1, 1, 33, 5, fill="#202020", outline="#FFFFFF"
-                    )
-                    if progress > 0:
-                        cell.create_rectangle(
-                            2, 2, 2 + round(30 * progress), 4,
-                            fill="#52D273", outline="",
-                        )
+            draw_mining_progress(origin_x, origin_y)
+        rendered_view_state = view_state
+        rendered_player_position = player_character.pos
 
         refresh_inventory()
         update_hovered_name()
         status.config(
-            text=f"Position: ({player_x}, {player_y})  Health: {player_character.health}"
+            text=(
+                f"Position: ({player_x}, {player_y})  "
+                f"Health: {player_character.health}  "
+                f"Coins: {politics.wallet}"
+            )
         )
+
+    def treat_infection():
+        if not player_character.infected:
+            status.config(text="You are not infected.")
+            return
+        salve = next(
+            (
+                item for item in player_character.inventory
+                if isinstance(item, usableItem)
+                and item.item_id == "healing_salve"
+            ),
+            None,
+        )
+        if salve is None:
+            status.config(text="Treating infection requires a Healing Salve.")
+            return
+        player_character.remove_from_inventory(salve)
+        player_character.infected = False
+        player_character.infection_elapsed = 0.0
+        refresh_display()
+        status.config(text="You treated the infection with a Healing Salve.")
+
+    def open_surgery_dialog():
+        dialog = tk.Toplevel(root)
+        dialog.title("Surgery and reattachment")
+        dialog.transient(root)
+        dialog.grab_set()
+        tk.Label(
+            dialog,
+            text="Remove an attached part or reattach a part in your inventory.",
+            wraplength=360,
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+        part_list = tk.Listbox(
+            dialog, width=48, height=len(BODY_PARTS), exportselection=False
+        )
+        part_list.pack(fill="both", expand=True, padx=10, pady=4)
+        surgery_status = tk.Label(dialog, text="", anchor="w", wraplength=360)
+        surgery_status.pack(fill="x", padx=10, pady=4)
+
+        def refresh_parts():
+            selection = part_list.curselection()
+            selected_index = selection[0] if selection else 0
+            part_list.delete(0, tk.END)
+            for part_id, part_name in BODY_PARTS:
+                detached = next(
+                    (
+                        item for item in player_character.inventory
+                        if isinstance(item, bodyPartItem)
+                        and item.part_id == part_id
+                    ),
+                    None,
+                )
+                if part_id in player_character.attached_parts:
+                    part_status = (
+                        f"Attached, {player_character.limb_health[part_id]} HP"
+                    )
+                elif detached is None:
+                    part_status = "Missing; no replacement in inventory"
+                else:
+                    part_status = (
+                        "Missing; replacement spoiled"
+                        if detached.spoiled else
+                        "Missing; replacement infected"
+                        if detached.infected else "Missing; replacement fresh"
+                    )
+                part_list.insert(tk.END, f"{part_name}: {part_status}")
+            if BODY_PARTS:
+                selected_index = min(selected_index, len(BODY_PARTS) - 1)
+                part_list.selection_set(selected_index)
+
+        def selected_part():
+            selection = part_list.curselection()
+            return BODY_PARTS[selection[0]] if selection else None
+
+        def amputate_selected():
+            selected = selected_part()
+            if selected is None:
+                surgery_status.config(text="Select a body part first.")
+                return
+            part_id, part_name = selected
+            part_health = player_character.amputate(part_id)
+            if part_health is None:
+                surgery_status.config(text=f"{part_name} is already missing.")
+                return
+            detached = bodyPartItem(
+                part_id,
+                part_name,
+                part_health,
+                infected=player_character.infected,
+            )
+            player_character.add_to_inventory(detached)
+            refresh_parts()
+            refresh_display()
+            surgery_status.config(
+                text=f"Amputated {part_name}; it will spoil after 10 warm minutes."
+            )
+
+        def reattach_selected():
+            selected = selected_part()
+            if selected is None:
+                surgery_status.config(text="Select a body part first.")
+                return
+            part_id, part_name = selected
+            update_spoilage_in_collection(
+                player_character.inventory,
+                game_world,
+                location=player_character.pos,
+            )
+            detached = next(
+                (
+                    item for item in player_character.inventory
+                    if isinstance(item, bodyPartItem)
+                    and item.part_id == part_id
+                ),
+                None,
+            )
+            if detached is None:
+                surgery_status.config(
+                    text=f"You have no {part_name.lower()} to reattach."
+                )
+                return
+            if part_id in player_character.attached_parts:
+                surgery_status.config(text=f"{part_name} is already attached.")
+                return
+            player_character.reattach(detached)
+            player_character.remove_from_inventory(detached)
+            refresh_parts()
+            refresh_display()
+            condition = (
+                "spoiled" if detached.spoiled else "infected"
+            )
+            surgery_status.config(
+                text=(
+                    f"Reattached {condition} {part_name}; "
+                    "infection has taken hold."
+                    if detached.spoiled or detached.infected
+                    else f"Reattached {part_name}."
+                )
+            )
+
+        controls = tk.Frame(dialog)
+        controls.pack(fill="x", padx=10, pady=(4, 10))
+        tk.Button(
+            controls, text="Amputate selected", command=amputate_selected
+        ).pack(side="left")
+        tk.Button(
+            controls, text="Reattach selected", command=reattach_selected
+        ).pack(side="right")
+        refresh_parts()
 
     def refresh_menu_save_buttons():
         try:
@@ -2159,8 +3447,16 @@ def main():
         except (OSError, ValueError, KeyError, TypeError, IndexError) as error:
             menu_status.config(text=f"Could not load {path.name}: {error}")
             return False
+        clear_task_queue()
         player_character.move(restored["pos"])
+        politics.load_data(restored["clan_politics"])
         player_character.hp = restored["health"]
+        player_character.restore_limb_health(restored["limb_health"])
+        player_character.restore_body_state(
+            restored["attached_parts"],
+            restored["infected"],
+            restored["infection_elapsed"],
+        )
         player_character.inventory[:] = restored["inventory"]
         selected_layer = restored["selected_layer"]
         selected_hotbar_slot = restored["selected_hotbar_slot"]
@@ -2259,6 +3555,7 @@ def main():
                     selected_layer,
                     hotbar_items,
                     selected_hotbar_slot,
+                    politics,
                 )
             except (OSError, ValueError, TypeError) as error:
                 save_status.config(text=f"Could not save game: {error}")
@@ -2282,8 +3579,290 @@ def main():
         ).pack(anchor="e", padx=12, pady=(0, 12))
         name_entry.focus_set()
 
+    def open_clan_management():
+        dialog = tk.Toplevel(root)
+        dialog.title("Clans & Politics")
+        dialog.transient(root)
+        dialog.geometry("680x560")
+
+        wallet_label = tk.Label(dialog, anchor="w", font=("Consolas", 11, "bold"))
+        wallet_label.pack(fill="x", padx=12, pady=(12, 4))
+        content = tk.Frame(dialog)
+        content.pack(fill="both", expand=True, padx=12, pady=6)
+        clan_column = tk.LabelFrame(content, text="Clans", padx=8, pady=6)
+        clan_column.pack(side="left", fill="y")
+        clan_list = tk.Listbox(clan_column, width=24, height=13, exportselection=False)
+        clan_list.pack(fill="y")
+        clan_info = tk.Label(
+            clan_column, text="", justify="left", anchor="nw", wraplength=190
+        )
+        clan_info.pack(fill="x", pady=(6, 4))
+        tk.Button(
+            clan_column, text="Join selected clan", command=lambda: run_clan_action(
+                lambda: politics.join(selected_clan_id()),
+                "You joined the clan.",
+            ),
+        ).pack(fill="x", pady=2)
+        tk.Button(
+            clan_column, text="Leave current clan", command=lambda: run_clan_action(
+                politics.leave, "You left your clan."
+            ),
+        ).pack(fill="x", pady=2)
+        tk.Button(
+            clan_column,
+            text="Seek next rank (50 / 100 coins)",
+            command=lambda: run_clan_action(
+                politics.seek_promotion,
+                "You earned a promotion; the cost went to the treasury.",
+            ),
+        ).pack(fill="x", pady=2)
+
+        tk.Label(clan_column, text="Found a clan (50 coins):").pack(
+            anchor="w", pady=(10, 2)
+        )
+        new_clan_name = tk.Entry(clan_column)
+        new_clan_name.pack(fill="x")
+        tk.Button(
+            clan_column,
+            text="Found clan",
+            command=lambda: run_clan_action(
+                lambda: politics.create_clan(new_clan_name.get()),
+                "Your new clan has been founded.",
+            ),
+        ).pack(fill="x", pady=2)
+
+        management_column = tk.Frame(content)
+        management_column.pack(side="left", fill="both", expand=True, padx=(12, 0))
+        clan_status = tk.Label(management_column, anchor="w", justify="left")
+        clan_status.pack(fill="x", pady=(0, 6))
+
+        treasury_frame = tk.LabelFrame(
+            management_column, text="Treasury", padx=8, pady=6
+        )
+        treasury_frame.pack(fill="x")
+        treasury_label = tk.Label(treasury_frame, anchor="w")
+        treasury_label.pack(fill="x")
+        amount_row = tk.Frame(treasury_frame)
+        amount_row.pack(fill="x", pady=(4, 0))
+        tk.Label(amount_row, text="Coins:").pack(side="left")
+        amount_var = tk.StringVar(value="10")
+        tk.Entry(amount_row, textvariable=amount_var, width=8).pack(
+            side="left", padx=(4, 8)
+        )
+        tk.Button(
+            amount_row, text="Deposit", command=lambda: run_clan_action(
+                lambda: politics.deposit(int(amount_var.get())),
+                "Coins deposited into the treasury.",
+            require_current_clan=True,
+        ),
+        ).pack(side="left", padx=2)
+        tk.Button(
+            amount_row, text="Withdraw", command=lambda: run_clan_action(
+                lambda: politics.withdraw(int(amount_var.get())),
+                "Coins withdrawn from the treasury.",
+            require_current_clan=True,
+            ),
+        ).pack(side="left", padx=2)
+
+        roster_frame = tk.LabelFrame(
+            management_column, text="Members and ranks", padx=8, pady=6
+        )
+        roster_frame.pack(fill="both", expand=True, pady=(8, 0))
+        member_list = tk.Listbox(
+            roster_frame, height=7, exportselection=False
+        )
+        member_list.pack(fill="both", expand=True)
+        rank_buttons = tk.Frame(roster_frame)
+        rank_buttons.pack(fill="x", pady=(4, 0))
+        tk.Button(
+            rank_buttons, text="Promote", command=lambda: change_member_rank(1)
+        ).pack(side="left", expand=True, fill="x")
+        tk.Button(
+            rank_buttons, text="Demote", command=lambda: change_member_rank(-1)
+        ).pack(side="left", expand=True, fill="x", padx=(5, 0))
+
+        diplomacy_frame = tk.LabelFrame(
+            management_column, text="Diplomacy", padx=8, pady=6
+        )
+        diplomacy_frame.pack(fill="x", pady=(8, 0))
+        relations_list = tk.Listbox(
+            diplomacy_frame, height=4, exportselection=False
+        )
+        relations_list.pack(fill="x")
+        relation_target = tk.StringVar()
+        relation_menu = tk.OptionMenu(diplomacy_frame, relation_target, "")
+        relation_menu.pack(fill="x", pady=(4, 0))
+        relation_buttons = tk.Frame(diplomacy_frame)
+        relation_buttons.pack(fill="x", pady=(4, 0))
+        for relation in ("allied", "rival", "neutral"):
+            tk.Button(
+                relation_buttons,
+                text=f"Set {relation}",
+                command=lambda chosen=relation: set_clan_relation(chosen),
+            ).pack(side="left", expand=True, fill="x", padx=1)
+
+        clan_ids = []
+        member_ids = []
+        detail_clan_id = None
+        action_status = tk.Label(dialog, anchor="w", justify="left")
+        action_status.pack(fill="x", padx=12, pady=(4, 8))
+
+        def selected_clan_id():
+            selection = clan_list.curselection()
+            if not selection:
+                raise ValueError("Select a clan first.")
+            return clan_ids[selection[0]]
+
+        def run_clan_action(
+            action, success_message, require_current_clan=False
+        ):
+            if (
+                require_current_clan
+                and detail_clan_id != politics.membership
+            ):
+                action_status.config(
+                    text="Select your own clan to manage its treasury or politics."
+                )
+                return
+            try:
+                action()
+            except (ValueError, KeyError) as error:
+                action_status.config(text=str(error))
+                return
+            action_status.config(text=success_message)
+            refresh_clan_window()
+
+        def change_member_rank(direction):
+            if detail_clan_id != politics.membership:
+                action_status.config(
+                    text="Select your own clan before changing member ranks."
+                )
+                return
+            selection = member_list.curselection()
+            if not selection:
+                action_status.config(text="Select a clan member first.")
+                return
+            member_name = member_ids[selection[0]]
+            run_clan_action(
+                lambda: politics.change_rank(member_name, direction),
+                f"Updated {member_name}'s rank.",
+            )
+
+        def set_clan_relation(relation):
+            if detail_clan_id != politics.membership:
+                action_status.config(
+                    text="Select your own clan before changing relations."
+                )
+                return
+            try:
+                target_id = next(
+                    clan_id for clan_id, clan in politics.clans.items()
+                    if clan["name"] == relation_target.get()
+                )
+            except StopIteration:
+                action_status.config(text="Choose another clan first.")
+                return
+            run_clan_action(
+                lambda: politics.set_relation(target_id, relation),
+                f"Relations are now {relation}.",
+            )
+
+        def update_relation_menu():
+            menu = relation_menu["menu"]
+            menu.delete(0, "end")
+            options = [
+                clan["name"]
+                for clan_id, clan in politics.clans.items()
+                if clan_id != politics.membership
+            ]
+            for name in options:
+                menu.add_command(
+                    label=name,
+                    command=lambda value=name: relation_target.set(value),
+                )
+            relation_target.set(options[0] if options else "")
+
+        def update_clan_details(clan_id):
+            clan = politics.clans[clan_id]
+            player_rank = clan["members"].get("You")
+            clan_info.config(
+                text=(
+                    f"{clan['name']}\\n{clan['motto']}\\n"
+                    f"Treasury: {clan['treasury']} coins"
+                )
+            )
+            if player_rank is None:
+                clan_status.config(
+                    text="You are not a member. Joining is free."
+                )
+            else:
+                clan_status.config(
+                    text=f"Your rank: {player_rank.title()} in {clan['name']}."
+                )
+            treasury_label.config(
+                text=(
+                    f"Clan funds: {clan['treasury']} coins  |  "
+                    f"Your wallet: {politics.wallet} coins"
+                )
+            )
+            member_ids.clear()
+            member_list.delete(0, tk.END)
+            for name, rank in sorted(
+                clan["members"].items(),
+                key=lambda member: (-CLAN_RANKS.index(member[1]), member[0]),
+            ):
+                member_ids.append(name)
+                member_list.insert(tk.END, f"{name} - {rank.title()}")
+            relations_list.delete(0, tk.END)
+            for other_id, relation in sorted(clan["relations"].items()):
+                relations_list.insert(
+                    tk.END,
+                    f"{politics.clans[other_id]['name']}: {relation.title()}",
+                )
+            update_relation_menu()
+
+        def refresh_clan_window():
+            nonlocal detail_clan_id
+            wallet_label.config(
+                text=f"Your money: {politics.wallet} coins"
+            )
+            clan_ids[:] = sorted(
+                politics.clans,
+                key=lambda clan_id: politics.clans[clan_id]["name"].casefold(),
+            )
+            clan_list.delete(0, tk.END)
+            for clan_id in clan_ids:
+                clan_list.insert(tk.END, politics.clans[clan_id]["name"])
+            if clan_ids:
+                if detail_clan_id not in clan_ids:
+                    detail_clan_id = (
+                        politics.membership
+                        if politics.membership in clan_ids else clan_ids[0]
+                    )
+                selected_index = clan_ids.index(detail_clan_id)
+                clan_list.selection_set(selected_index)
+                clan_list.see(selected_index)
+                update_clan_details(detail_clan_id)
+            else:
+                clan_info.config(text="No clans exist.")
+
+        def select_clan(_event=None):
+            nonlocal detail_clan_id
+            try:
+                detail_clan_id = selected_clan_id()
+            except ValueError:
+                return
+            update_clan_details(detail_clan_id)
+
+        clan_list.bind("<<ListboxSelect>>", select_clan)
+        tk.Button(
+            dialog, text="Close", command=dialog.destroy
+        ).pack(anchor="e", padx=12, pady=(0, 10))
+        refresh_clan_window()
+
     def show_main_menu():
         nonlocal game_active, entity_update_job
+        clear_task_queue()
         game_active = False
         if entity_update_job is not None:
             root.after_cancel(entity_update_job)
@@ -2295,11 +3874,18 @@ def main():
 
     def start_new_game():
         nonlocal selected_layer, selected_hotbar_slot, mining_state
+        clear_task_queue()
         game_world.generate_world(width, height)
+        politics.reset()
         player_x, player_y = width // 2 - 1, height // 2 - 1
         start_depth = game_world.get_surface_depth(player_x, player_y)
         player_character.move((player_x, player_y, start_depth))
-        player_character.hp = player_character.max_health
+        player_character.restore_body_state(
+            [part_id for part_id, _label in BODY_PARTS],
+            False,
+            0.0,
+        )
+        player_character.heal_fully()
         player_character.inventory.clear()
         selected_layer = start_depth
         selected_hotbar_slot = 0
@@ -2315,11 +3901,85 @@ def main():
         refresh_display()
 
     def handle_layer_scroll(event):
-        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+        scroll_up = (
+            getattr(event, "num", None) == 4
+            or getattr(event, "delta", 0) > 0
+        )
+        if getattr(event, "state", 0) & 0x4:
+            change_zoom(1 if scroll_up else -1)
+        elif scroll_up:
             change_layer(-1)
-        elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+        elif (
+            getattr(event, "num", None) == 5
+            or getattr(event, "delta", 0) < 0
+        ):
             change_layer(1)
         return "break"
+
+    def handle_map_motion(event):
+        cell_x = event.x // cell_size
+        cell_y = event.y // cell_size
+        if 0 <= cell_x < viewport_width and 0 <= cell_y < viewport_height:
+            set_hovered_cell(cell_x, cell_y)
+
+    def handle_map_leave(_event):
+        nonlocal hovered_cell
+        if hovered_cell is not None:
+            hovered_cell = None
+            update_hovered_name()
+
+    def change_zoom(amount):
+        nonlocal zoom_index, cell_size, viewport_width, viewport_height
+        nonlocal hovered_cell
+        new_zoom_index = max(
+            0, min(len(zoom_levels) - 1, zoom_index + amount)
+        )
+        if new_zoom_index == zoom_index:
+            return
+        zoom_index = new_zoom_index
+        cell_size = zoom_levels[zoom_index]
+        viewport_width = max(1, viewport_pixels // cell_size)
+        viewport_height = max(1, viewport_pixels // cell_size)
+        hovered_cell = None
+        zoom_label.config(text=f"Zoom: {round(cell_size / 34 * 100)}%")
+        build_map_grid()
+        if game_active:
+            refresh_display()
+
+    def build_map_grid():
+        nonlocal map_background_items, map_text_items, map_render_states
+        nonlocal rendered_view_state, rendered_player_position
+        map_canvas.configure(
+            width=viewport_width * cell_size,
+            height=viewport_height * cell_size,
+        )
+        map_canvas.delete("all")
+        map_background_items = []
+        map_text_items = []
+        map_render_states = []
+        rendered_view_state = None
+        rendered_player_position = None
+        rendered_entity_ids.clear()
+        for y in range(viewport_height):
+            for x in range(viewport_width):
+                left = x * cell_size
+                top = y * cell_size
+                map_background_items.append(
+                    map_canvas.create_rectangle(
+                        left, top, left + cell_size, top + cell_size,
+                        fill="#000000", outline="#888888", width=1,
+                    )
+                )
+                map_text_items.append(
+                    map_canvas.create_text(
+                        left + cell_size // 2,
+                        top + cell_size // 2,
+                        text="",
+                        fill="#FFFFFF",
+                        font=("Consolas", max(7, round(cell_size * 14 / 34))),
+                    )
+                )
+                map_render_states.append(None)
 
     def change_player_y_level(amount):
         nonlocal selected_layer
@@ -2331,37 +3991,191 @@ def main():
         player_x, player_y, _ = player_character.pos
         return (x - player_x) ** 2 + (y - player_y) ** 2 <= 4 ** 2
 
+    def refresh_task_list():
+        task_list.delete(0, tk.END)
+        if active_task is not None:
+            task_list.insert(tk.END, f"Working: {active_task['label']}")
+        task_list.insert(
+            tk.END,
+            *(task["label"] for task in task_queue),
+        )
+
+    def finish_active_task(delay=100):
+        nonlocal active_task, task_started, task_runner_job
+        active_task = None
+        task_started = False
+        refresh_task_list()
+        if task_queue:
+            task_runner_job = root.after(delay, process_task_queue)
+
+    def clear_task_queue(message=None):
+        nonlocal active_task, task_started, task_runner_job, mining_state
+        if task_runner_job is not None:
+            root.after_cancel(task_runner_job)
+            task_runner_job = None
+        task_queue.clear()
+        active_task = None
+        task_started = False
+        mining_state = None
+        refresh_task_list()
+        if game_active:
+            refresh_display()
+        if message:
+            status.config(text=message)
+
+    def task_is_in_range(task):
+        kind = task["kind"]
+        x, y = task["position"]
+        if kind == "use":
+            return task["item"] in player_character.inventory
+        if not in_interaction_range(x, y):
+            return False
+        if kind == "mine":
+            depth = task["depth"]
+            return (
+                game_world.get_tile(x, y, depth) is task["target"]
+                and abs(depth - player_character.pos[2]) <= 4
+                and game_world.can_mine_target(
+                    x, y, depth, player_character.pos
+                )
+            )
+        if kind == "attack":
+            player_x, player_y, player_depth = player_character.pos
+            return (
+                game_world.get_tile(x, y, task["depth"]) is task["target"]
+                and task["depth"] == player_depth
+                and abs(x - player_x) + abs(y - player_y) <= 1
+            )
+        if kind == "place":
+            return (
+                task["item"] in player_character.inventory
+                and getattr(task["item"], "placeable", False)
+                and placement_depth(x, y) is not None
+            )
+        return (
+            game_world.get_tile(x, y, task["depth"]) is task["target"]
+        )
+
+    def enqueue_task(kind, x=None, y=None, depth=None, target=None, item=None):
+        if kind == "use":
+            label = f"Use {item.name}"
+            position = None
+        else:
+            position = (x, y)
+            if kind == "mine":
+                label = f"Mine {target.name}"
+            elif kind == "attack":
+                label = f"Attack {target.name}"
+            elif kind == "place":
+                label = f"Place {item.name}"
+            else:
+                label = f"Use {target.name}"
+        task_queue.append({
+            "kind": kind,
+            "position": position,
+            "depth": depth,
+            "target": target,
+            "item": item,
+            "tool": selected_item() if kind == "mine" else None,
+            "label": label,
+        })
+        refresh_task_list()
+        status.config(text=f"Queued {label}.")
+        if active_task is None and task_runner_job is None:
+            process_task_queue()
+
+    def process_task_queue():
+        nonlocal active_task, task_started, task_runner_job
+        task_runner_job = None
+        if task_started:
+            return
+        if active_task is None:
+            if not task_queue:
+                return
+            task = task_queue.pop(0)
+            if not task_is_in_range(task):
+                task_queue.clear()
+                refresh_task_list()
+                status.config(
+                    text=(
+                        "Task queue stopped: a task is no longer in range "
+                        "or available."
+                    )
+                )
+                return
+            active_task = task
+            refresh_task_list()
+        task = active_task
+        if root.grab_current() not in (None, root):
+            task_runner_job = root.after(150, process_task_queue)
+            return
+        task_started = True
+
+        kind = task["kind"]
+        x, y = task["position"] if task["position"] is not None else (None, None)
+        if kind == "mine":
+            if not start_mining(
+                x, y, task["depth"], tool=task["tool"]
+            ):
+                finish_active_task()
+        elif kind == "attack":
+            attack_entity(x, y, task["target"])
+            finish_active_task()
+        elif kind == "place":
+            place_selected(x, y, task["item"])
+            finish_active_task()
+        elif kind == "interact":
+            if interact(x, y, task["depth"], task["target"]):
+                finish_active_task(200)
+            else:
+                finish_active_task()
+        elif kind == "use":
+            success, message = use_item(task["item"], player_character)
+            if success:
+                refresh_display()
+            status.config(text=message)
+            finish_active_task()
+
     def placement_depth(x, y):
         return game_world.get_placement_depth(x, y, player_character.pos)
 
-    def current_chunk_origin():
+    def current_view_origin():
         player_x, player_y, _ = player_character.pos
         return (
-            (player_x // game_world.chunk_width) * game_world.chunk_width,
-            (player_y // game_world.chunk_height) * game_world.chunk_height,
+            (player_x // viewport_width) * viewport_width,
+            (player_y // viewport_height) * viewport_height,
         )
 
     def break_target(target_x, target_y, depth, tool):
         nonlocal selected_layer
+        def finish_mining_task():
+            if active_task is not None and active_task["kind"] == "mine":
+                finish_active_task()
+
         if not in_interaction_range(target_x, target_y):
             status.config(text="That block is outside your 4-block interaction radius.")
+            finish_mining_task()
             return
         player_pos = player_character.pos
         if abs(depth - player_pos[2]) > 4:
             status.config(text="You can mine only within 4 Y levels of your position.")
+            finish_mining_task()
             return
         if not game_world.can_mine_target(
             target_x, target_y, depth, player_pos
         ):
             status.config(text="There is no open path to mine that block.")
+            finish_mining_task()
             return
         try:
             target = game_world.break_block(target_x, target_y, depth, tool)
         except ValueError as error:
             status.config(text=str(error))
+            finish_mining_task()
             return
         if target is None:
             status.config(text="There is no placeable object in that cell.")
+            finish_mining_task()
             return
         player_character.add_to_inventory(target)
         message = f"Collected {target.name}."
@@ -2391,18 +4205,16 @@ def main():
             selected_layer = player_character.pos[2]
         refresh_display()
         status.config(text=message)
+        finish_mining_task()
 
     def cancel_mining(message):
-        nonlocal mining_state
-        mining_state = None
-        refresh_display()
-        status.config(text=message)
+        clear_task_queue(message)
 
-    def start_mining(target_x, target_y, depth):
+    def start_mining(target_x, target_y, depth, tool=None):
         nonlocal mining_state
         if not in_interaction_range(target_x, target_y):
             status.config(text="That block is outside your 4-block interaction radius.")
-            return
+            return False
         player_pos = player_character.pos
         if (
             abs(depth - player_pos[2]) > 4
@@ -2411,12 +4223,11 @@ def main():
             )
         ):
             status.config(text="There is no open path to mine that block.")
-            return
+            return False
         target = game_world.get_tile(target_x, target_y, depth)
         if target is None:
             status.config(text="There is no breakable object in that cell.")
-            return
-        tool = selected_item()
+            return False
         mining_state = {
             "position": (target_x, target_y, depth),
             "target": target,
@@ -2428,6 +4239,7 @@ def main():
         refresh_display()
         status.config(text=f"Mining {target.name}...")
         update_mining_progress()
+        return True
 
     def update_mining_progress():
         nonlocal mining_state
@@ -2456,21 +4268,24 @@ def main():
         status.config(text=f"Mining {current_target.name}...")
         root.after(50, update_mining_progress)
 
-    def place_selected(target_x, target_y):
+    def place_selected(target_x, target_y, item=None):
         if not in_interaction_range(target_x, target_y):
             status.config(text="That space is outside your 4-block interaction radius.")
-            return
-        item = selected_item()
+            return False
+        item = selected_item() if item is None else item
         if not getattr(item, "placeable", False):
             status.config(text="Select a placeable item in your inventory first.")
-            return
+            return False
         depth = placement_depth(target_x, target_y)
         if depth is None:
             status.config(
                 text="You can place only on your Y level or the level below, "
                      "and both spaces are occupied."
             )
-            return
+            return False
+        if item not in player_character.inventory:
+            status.config(text=f"{item.name} is no longer in your inventory.")
+            return False
         placed_item = game_world.create_crafted_item(
             item_identifier(item), (target_x, target_y, depth)
         )
@@ -2478,13 +4293,22 @@ def main():
         player_character.remove_from_inventory(item, 1)
         status.config(text=f"Placed {item.name}.")
         refresh_display()
+        return True
 
     def open_chest(chest):
         dialog = tk.Toplevel(root)
         dialog.title(chest.name)
         dialog.transient(root)
         dialog.grab_set()
-        chest_column = tk.LabelFrame(dialog, text="Chest contents", padx=8, pady=6)
+        chest_column = tk.LabelFrame(
+            dialog,
+            text=(
+                "Cold-storage contents"
+                if chest.item_id == "icebox" else "Chest contents"
+            ),
+            padx=8,
+            pady=6,
+        )
         chest_column.grid(row=0, column=0, padx=8, pady=8, sticky="n")
         player_column = tk.LabelFrame(dialog, text="Your inventory", padx=8, pady=6)
         player_column.grid(row=0, column=1, padx=8, pady=8, sticky="n")
@@ -2504,6 +4328,17 @@ def main():
         player_visible = []
 
         def update_lists():
+            update_spoilage_in_collection(
+                chest.contents,
+                game_world,
+                cold=chest.item_id == "icebox",
+                location=chest.pos,
+            )
+            update_spoilage_in_collection(
+                player_character.inventory,
+                game_world,
+                location=player_character.pos,
+            )
             chest_selection = chest_list.curselection()
             chest_selected = chest_visible[chest_selection[0]] if chest_selection else None
             player_selection = player_list.curselection()
@@ -2675,28 +4510,97 @@ def main():
         ).pack(anchor="e", pady=(4, 0))
         update_recipe_list()
 
-    def interact(target_x, target_y):
+    def interact(target_x, target_y, target_depth=None, expected_target=None):
         if not in_interaction_range(target_x, target_y):
             status.config(text="That object is outside your 4-block interaction radius.")
-            return
-        target = game_world.get_tile(target_x, target_y, selected_layer)
-        if isinstance(target, storageObject):
+            return False
+        target_depth = selected_layer if target_depth is None else target_depth
+        target = game_world.get_tile(target_x, target_y, target_depth)
+        if expected_target is not None and target is not expected_target:
+            status.config(text="That object is no longer there.")
+            return False
+        if isinstance(target, door):
+            target.toggle()
+            refresh_display()
+            status.config(
+                text=f"{target.name} {'opened' if target.is_open else 'closed'}."
+            )
+            return True
+        elif isinstance(target, storageObject):
             open_chest(target)
+            return True
         elif isinstance(target, (craftingTable, furnace)):
             open_station(target)
+            return True
         elif isinstance(target, restingPlace):
             restored = player_character.max_health - player_character.health
-            player_character.health = player_character.max_health
+            limb_damage = any(
+                value < player_character.max_health
+                for value in player_character.limb_health.values()
+            )
+            player_character.heal_fully()
             status.config(
-                text=f"Rested at {target.name}; restored {restored} health."
-                if restored else "Your health is already full."
+                text=(
+                    f"Rested at {target.name}; restored {restored} health "
+                    "and healed all body parts."
+                )
+                if restored or limb_damage
+                else "Your health and limbs are already fully healed."
             )
             refresh_display()
+            return True
         else:
             status.config(text="There is no usable object in that cell.")
+            return False
+
+    def attack_entity(target_x, target_y, expected_target=None):
+        target = game_world.get_tile(
+            target_x, target_y,
+            selected_layer if expected_target is None else expected_target.pos[2],
+        )
+        if expected_target is not None and target is not expected_target:
+            status.config(text="That creature is no longer there.")
+            return False
+        player_x, player_y, player_depth = player_character.pos
+        if (
+            not isinstance(target, entity)
+            or target is player_character
+            or target.pos[2] != player_depth
+            or abs(target_x - player_x) + abs(target_y - player_y) > 1
+        ):
+            status.config(text="You must be next to a creature to attack it.")
+            return False
+        part_id, damage = target.take_damage(
+            player_character.effective_attack_power
+        )
+        if part_id is None:
+            status.config(text=f"{target.name} has no attached body parts.")
+            return False
+        part_label = dict(BODY_PARTS)[part_id]
+        if target.health <= 0:
+            game_world.set_tile(*target.pos, None)
+            bounty = (
+                max(1, target.max_health // 10)
+                if target.disposition == "hostile" else 0
+            )
+            politics.wallet += bounty
+            result = (
+                f"You defeated {target.name} and earned {bounty} "
+                f"{'coin' if bounty == 1 else 'coins'}. "
+                f"Wallet: {politics.wallet}."
+                if bounty else f"You defeated {target.name}."
+            )
+        else:
+            result = (
+                f"You hit {target.name}'s {part_label} for {damage} damage "
+                f"({target.limb_health[part_id]}/{target.max_health} limb health)."
+            )
+        refresh_display()
+        status.config(text=result)
+        return True
 
     def show_interaction_menu(event, x, y):
-        origin_x, origin_y = current_chunk_origin()
+        origin_x, origin_y = current_view_origin()
         x, y = origin_x + x, origin_y + y
         target = game_world.get_tile(x, y, selected_layer)
         menu = tk.Menu(root, tearoff=False)
@@ -2711,13 +4615,16 @@ def main():
                 x, y, selected_layer, player_character.pos
             )
             for target_depth, mineable_target in mineable_targets:
+                if isinstance(mineable_target, entity):
+                    continue
                 menu.add_command(
                     label=(
                         f"Break {mineable_target.name} "
                         f"(Y level {world.Y_LEVEL_COUNT - target_depth})"
                     ),
-                    command=lambda depth=target_depth: start_mining(
-                        x, y, depth
+                    command=lambda depth=target_depth, mine_target=mineable_target:
+                    enqueue_task(
+                        "mine", x, y, depth, mine_target
                     ),
                 )
             if (
@@ -2726,22 +4633,55 @@ def main():
             ):
                 menu.add_command(
                     label=f"Place {item_to_place.name}",
-                    command=lambda: place_selected(x, y),
+                    command=lambda item=item_to_place: enqueue_task(
+                        "place", x, y, selected_layer, item=item
+                    ),
                 )
-            if isinstance(target, storageObject):
+            if isinstance(target, door):
                 menu.add_command(
-                    label="Open Chest", command=lambda: open_chest(target)
+                    label=f"{'Close' if target.is_open else 'Open'} {target.name}",
+                    command=lambda obj=target: enqueue_task(
+                        "interact", x, y, selected_layer, obj
+                    ),
+                )
+            elif isinstance(target, entity) and target is not player_character:
+                player_x, player_y, player_depth = player_character.pos
+                if (
+                    target.pos[2] == player_depth
+                    and abs(x - player_x) + abs(y - player_y) <= 1
+                ):
+                    menu.add_command(
+                        label=f"Attack {target.name}",
+                        command=lambda creature=target: enqueue_task(
+                            "attack", x, y, creature.pos[2], creature
+                        ),
+                    )
+                else:
+                    menu.add_command(
+                        label="Creature is too far away to attack",
+                        state="disabled",
+                    )
+            elif isinstance(target, storageObject):
+                menu.add_command(
+                    label="Open Chest",
+                    command=lambda obj=target: enqueue_task(
+                        "interact", x, y, selected_layer, obj
+                    ),
                 )
             elif isinstance(target, (craftingTable, furnace, restingPlace)):
                 menu.add_command(
                     label=f"Use {target.name}",
-                    command=lambda: interact(x, y),
+                    command=lambda obj=target: enqueue_task(
+                        "interact", x, y, selected_layer, obj
+                    ),
                 )
             selected = selected_item()
             if isinstance(selected, usableItem):
                 menu.add_command(
                     label=f"Use {selected.name}",
-                    command=use_selected_item,
+                    command=lambda item=selected: enqueue_task(
+                        "use", item=item
+                    ),
                 )
             if menu.index("end") is None:
                 menu.add_command(label="No available interactions", state="disabled")
@@ -2961,10 +4901,14 @@ def main():
                 change_player_y_level(-1 if event.keysym == "Up" else 1)
                 return
             dx, dy = movement[event.keysym]
+            previous_position = player_character.pos
             movement_result = game_world.move_player(player_character, dx, dy)
+            if movement_result == "stumbled":
+                status.config(text="Your injured legs make you stumble.")
+                return
             if movement_result != "blocked":
                 selected_layer = player_character.pos[2]
-                refresh_display()
+                refresh_display(player_moved_from=previous_position)
                 if movement_result == "stepped":
                     status.config(text="You stepped up onto a block.")
                 elif movement_result == "fell":
@@ -2975,21 +4919,55 @@ def main():
             change_layer(1)
 
     def update_entities():
-        nonlocal entity_update_job
+        nonlocal entity_update_job, last_entity_update
         entity_update_job = None
         if not game_active:
             return
+        now = time.monotonic()
+        elapsed = max(0.0, now - last_entity_update)
+        last_entity_update = now
+        spoilage_state = tuple(
+            (id(item), item.spoiled, round(item.spoil_remaining))
+            for item in player_character.inventory
+            if isinstance(item, bodyPartItem)
+        )
+        update_spoilage_in_collection(
+            player_character.inventory,
+            game_world,
+            location=player_character.pos,
+        )
+        if spoilage_state != tuple(
+            (id(item), item.spoiled, round(item.spoil_remaining))
+            for item in player_character.inventory
+            if isinstance(item, bodyPartItem)
+        ):
+            refresh_inventory()
         entity_changed = game_world.update_entity_ai(player_character)
+        if player_character.infected:
+            player_character.infection_elapsed += elapsed
+            while (
+                player_character.infection_elapsed
+                >= INFECTION_DAMAGE_INTERVAL
+                and player_character.health > 0
+            ):
+                player_character.hp -= 1
+                player_character.infection_elapsed -= (
+                    INFECTION_DAMAGE_INTERVAL
+                )
+                entity_changed = True
+        else:
+            player_character.infection_elapsed = 0.0
         trees_changed = game_world.grow_saplings()
         if entity_changed or trees_changed:
             refresh_display()
         entity_update_job = root.after(500, update_entities)
 
     def start_game():
-        nonlocal game_active
+        nonlocal game_active, last_entity_update
         menu_frame.pack_forget()
         main_frame.pack()
         root.bind("<KeyPress>", handle_movement)
+        last_entity_update = time.monotonic()
         refresh_display()
         game_active = True
         if entity_update_job is None:
@@ -3053,26 +5031,19 @@ def main():
         "<Button-3>",
         lambda _event: root.after_idle(assign_inventory_to_hotbar),
     )
-    for y, row in enumerate(cells):
-        for x, cell in enumerate(row):
-            cell.bind("<MouseWheel>", handle_layer_scroll)
-            cell.bind("<Button-4>", handle_layer_scroll)
-            cell.bind("<Button-5>", handle_layer_scroll)
-            cell.bind(
-                "<Enter>",
-                lambda _event, cell_x=x, cell_y=y: set_hovered_cell(cell_x, cell_y),
-            )
-            cell.bind(
-                "<Leave>",
-                lambda _event, cell_x=x, cell_y=y: clear_hovered_cell(cell_x, cell_y),
-            )
-            cell.bind(
-                "<Button-3>",
-                lambda event, cell_x=x, cell_y=y: show_interaction_menu(
-                    event, cell_x, cell_y
-                ),
-            )
-
+    map_canvas.bind("<MouseWheel>", handle_layer_scroll)
+    map_canvas.bind("<Button-4>", handle_layer_scroll)
+    map_canvas.bind("<Button-5>", handle_layer_scroll)
+    map_canvas.bind("<Motion>", handle_map_motion)
+    map_canvas.bind("<Leave>", handle_map_leave)
+    map_canvas.bind(
+        "<Button-3>",
+        lambda event: show_interaction_menu(
+            event,
+            event.x // cell_size,
+            event.y // cell_size,
+        ),
+    )
     tk.Button(layer_buttons, text="Raise Y", command=lambda: change_layer(-1)).pack(
         side="left", expand=True, fill="x"
     )
@@ -3081,6 +5052,8 @@ def main():
     )
 
     inventory_search.bind("<KeyRelease>", lambda _event: refresh_inventory())
+    zoom_label.config(text=f"Zoom: {round(cell_size / 34 * 100)}%")
+    build_map_grid()
     refresh_menu_save_buttons()
     root.mainloop()
 

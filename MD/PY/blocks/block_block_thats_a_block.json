@@ -1,0 +1,11 @@
+{
+  "id": "block_block_thats_a_block",
+  "name": "BLOCK BLOCK THATS A BLOCK",
+  "icon": "BB",
+  "description": "A solid, breakable BLOCK block block.",
+  "solid": true,
+  "breakable": true,
+  "foreground_color": "#000000",
+  "background_color": "#FFFFFF",
+  "break_time": 0.81
+}
